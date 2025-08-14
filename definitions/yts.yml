@@ -1,0 +1,41 @@
+key: "yts"
+name: "YTS"
+description: "YTS is a Public torrent site specialising in HD movies of small size"
+language: "en-US"
+schedule: "@every 2h"
+
+search:
+  type: "json"
+  url: "https://yts.mx/api/v2/list_movies.json"
+  
+  params:
+    query_term: "{{.Query}}"
+    limit: 50
+    sort_by: "date_added"
+    order_by: "desc"
+
+  results:
+    # Path to the parent objects (the movies)
+    path: "data.movies"
+    # For each movie, iterate through this sub-path (the torrents)
+    sub_path: "torrents"
+    fields:
+      # Use the new Parent/Result context to build a detailed title.
+      # {{.Parent.title_long}} comes from the movie object.
+      # {{.Result.quality}} and {{.Result.type}} come from the torrent object.
+      title: "{{.Parent.title_long}} [{{.Result.quality}}] [{{if eq .Result.type \"web\"}}WEBRip{{else}}BluRay{{end}}]"
+      
+      # Construct the magnet link using the hash from the torrent and the title from the movie.
+      download_url: "magnet:?xt=urn:btih:{{.Result.hash}}&dn={{.Parent.title_long}}"
+      
+      # These fields are all from the torrent object (.Result).
+      size: "size_bytes"
+      seeders: "seeds"
+      leechers: "peers"
+      publish_date: "date_uploaded_unix"
+
+# Dummy categories for UI filtering, as the API doesn't use them for searching.
+categories:
+  "Movies/HD": "720p"
+  "Movies/UHD": "1080p"
+  "Movies/3D": "3D"

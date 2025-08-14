@@ -1,0 +1,35 @@
+key: "uindex"
+name: "Uindex"
+description: "Uindex is a Public Torrent Tracker for MOVIES / TV / MUSIC / GENERAL"
+language: "en-US"
+schedule: "@every 1h"
+
+search:
+  type: "html"
+  url: "https://uindex.org/search.php"
+
+  params:
+    search: "{{.Query}}"
+    c: "0" # Default category for "all", will be overwritten if user selects one
+
+  results:
+    rows_selector: "table.maintable > tbody > tr:has(a[href^='magnet:?xt='])"
+
+    fields:
+      title: "a[href^='/details.php?id=']"
+      download_url: "a[href^='magnet:?xt=']@href"
+      size: "td:nth-child(3)"
+      seeders: "td:nth-child(4)"
+      leechers: "td:nth-child(5)"
+      publish_date: "div.sub" # Our code now finds the date inside this div's text
+
+# The key is the category ID sent to the tracker, the value is the display name in the UI.
+categories:
+  "1": "Movies"
+  "2": "TV"
+  "3": "Games"
+  "4": "Music"
+  "5": "Apps"
+  "6": "XXX"
+  "7": "Anime"
+  "8": "Other"

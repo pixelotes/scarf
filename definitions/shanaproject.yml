@@ -1,0 +1,32 @@
+key: "shanaproject"
+name: "Shana Project"
+description: "Shana Project is a Public torrent site for ANIME"
+language: "en-US"
+schedule: "@hourly"
+
+search:
+  type: "html"
+  url: "https://www.shanaproject.com/search/"
+
+  params:
+    title: "{{.Query}}"
+    subber: ""
+    sort: "date"
+    dir: "Descending"
+
+  results:
+    rows_selector: "div.grid_12 > div[id^='rel']"
+
+    fields:
+      title: "div.release_leftover > div.release_text_contents"
+      # The download link is relative, but our app will make it absolute.
+      download_url: "a[href^='/download/']@href"
+      size: "div.release_size"
+      publish_date: "div.release_20" # Our app now understands this custom date format.
+      
+      # Our app now understands static numbers for fields.
+      seeders: "1"
+      leechers: "1"
+
+categories:
+  "Anime": "Anime"

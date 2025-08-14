@@ -1,0 +1,36 @@
+key: "bangumi-moe"
+name: "Bangumi Moe"
+description: "Bangumi Moe is a Public torrent site for ANIME"
+language: "en-US"
+schedule: "@hourly"
+
+search:
+  type: "json"
+  
+  url: >-
+    https://bangumi.moe/{{if .Query}}api/v2/torrent/search{{else}}api/torrent/latest{{end}}
+  
+  method: "{{if .Query}}post{{else}}get{{end}}"
+
+  # FIX: Specify the content type and format the body as a JSON string.
+  # The single quotes are important for correct YAML parsing.
+  content_type: "application/json"
+  body: '{"query": "{{.Query}}"}'
+
+  results:
+    path: "torrents"
+    fields:
+      title: "title"
+      size: "size"
+      seeders: "seeders"
+      leechers: "leechers"
+      publish_date: "publish_time"
+      download_url: "magnet:?xt=urn:btih:{{.Result.infoHash}}&dn={{.Result.title}}"
+
+categories:
+  "549ef207fe682f7549f1ea90": "Anime"
+  "54967e14ff43b99e284d0bf7": "Anime Pack"
+  "549cc9369310bc7d04cddf9f": "Anime Movie"
+  "549eef6ffe682f7549f1ea8b": "Music"
+  "549eefebfe682f7549f1ea8c": "Comic"
+  "549ef015fe682f7549f1ea8d": "Game"

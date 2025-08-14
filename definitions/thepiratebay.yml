@@ -1,0 +1,42 @@
+key: "thepiratebay"
+name: "The Pirate Bay"
+description: "The galaxy's most resilient Public BitTorrent site"
+language: "en-US"
+schedule: "@every 1h"
+
+search:
+  type: "json"
+  
+  url: >-
+    {{if .Query}}https://apibay.org/q.php?q={{.Query}}&cat=0{{else}}https://apibay.org/precompiled/data_top100_recent.json{{end}}
+
+  results:
+    path: "" # The API returns an array at the root
+    fields:
+      # FIX: This is now a simple key lookup. Our Go app knows to get the value 
+      # from the "name" field in the JSON.
+      title: "name"
+
+      # FIX: The template for the magnet link now correctly refers to the
+      # info_hash and name fields inside the .Result object.
+      download_url: "magnet:?xt=urn:btih:{{.Result.info_hash}}&dn={{.Result.name}}"
+      
+      # These fields are direct mappings and remain the same.
+      size: "size"
+      seeders: "seeders"
+      leechers: "leechers"
+      publish_date: "added"
+
+categories:
+  "101": "Music"
+  "102": "Audio Books"
+  "104": "FLAC"
+  "201": "Movies"
+  "207": "HD - Movies"
+  "211": "UHD/4k - Movies"
+  "205": "TV Shows"
+  "208": "HD - TV shows"
+  "212": "UHD/4k - TV shows"
+  "301": "PC Apps"
+  "401": "PC Games"
+  "601": "E-books"

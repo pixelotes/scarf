@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Go Indexer</title>
+    <style>
+        :root {
+            --bg-color: #1e1e1e; --text-color: #d4d4d4; --primary-color: #007acc;
+            --border-color: #333; --header-bg: #252526; --table-header-bg: #333;
+            --table-row-hover: #2a2d2e; --success-color: #4ec9b0; --error-color: #f44747;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: var(--bg-color); color: var(--text-color); margin: 0; }
+        main { max-width: 1200px; margin: auto; padding: 2rem; }
+        a { color: var(--primary-color); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        input, select, button { padding: 0.75rem; border-radius: 4px; border: 1px solid var(--border-color); background-color: var(--header-bg); color: var(--text-color); font-size: 1rem; }
+        button { background-color: var(--primary-color); border-color: var(--primary-color); cursor: pointer; font-weight: bold; }
+        button:hover { opacity: 0.9; }
+        button:disabled { background-color: #555; cursor: not-allowed; }
+        
+        #login-screen { display: flex; align-items: center; justify-content: center; height: 100vh; }
+        #login-form { display: flex; flex-direction: column; gap: 1rem; padding: 2rem; background: var(--header-bg); border-radius: 8px; }
+
+        #app-container { display: none; }
+        nav { display: flex; gap: 1rem; border-bottom: 1px solid var(--border-color); margin-bottom: 2rem; }
+        nav button { background: none; border: none; padding: 1rem; font-size: 1rem; cursor: pointer; color: var(--text-color); border-bottom: 2px solid transparent; }
+        nav button.active { border-bottom-color: var(--primary-color); }
+        .page { display: none; }
+        .page.active { display: block; }
+        
+        #search-form { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 2rem; }
+        #search-form input, #search-form select { flex-grow: 1; }
+        
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
+        th { background-color: var(--table-header-bg); }
+        th.sortable { cursor: pointer; user-select: none; }
+        th.sortable:hover { background-color: #444; }
+        th .sort-arrow { display: inline-block; margin-left: 8px; opacity: 0.5; width: 1em; }
+        th.active .sort-arrow { opacity: 1; }
+
+        tbody tr:hover { background-color: var(--table-row-hover); }
+        .seeders { color: var(--success-color); }
+        .leechers { color: var(--error-color); }
+        .download-cell { text-align: center; }
+        .download-cell a { display: inline-block; padding: 4px; }
+        .download-cell svg { width: 20px; height: 20px; stroke: var(--primary-color); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        .download-cell a:hover svg { stroke: var(--text-color); }
+        
+        #pagination-controls { display: none; justify-content: center; align-items: center; gap: 1rem; margin-top: 2rem; }
+
+        #log-controls { margin-bottom: 1rem; display: flex; gap: 1rem; }
+        #log-container { height: 60vh; overflow-y: scroll; background: #111; padding: 1rem; font-family: "Courier New", Courier, monospace; font-size: 0.9rem; white-space: pre-wrap; }
+        
+        .status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
+        .status-card { background: var(--header-bg); padding: 1rem; border-radius: 4px; }
+        .status-card-actions { margin-top: 1rem; display: flex; gap: 0.5rem; }
+        .status-card-actions button { font-size: 0.8rem; padding: 0.5rem; }
+        .flexget-url { margin-top: 1rem; }
+    </style>
+</head>
+<body>
+    <div id="login-screen">
+        <form id="login-form">
+            <h2>Go Indexer Login</h2>
+            <input type="password" id="password-input" placeholder="Password" required>
+            <button type="submit">Login</button>
+            <p id="login-error" style="color:var(--error-color); text-align:center;"></p>
+        </form>
+    </div>
+
+    <main id="app-container">
+        <nav id="nav-buttons">
+            <button data-page="search-page" class="active">Search</button>
+            <button data-page="logs-page">Logs</button>
+            <button data-page="status-page">Status</button>
+        </nav>
+
+        <div id="search-page" class="page active">
+            <form id="search-form">
+                <select id="indexer-select" name="indexer" required></select>
+                <input type="search" id="query-input" name="q" placeholder="Search for...">
+                <select id="category-select" name="cat"></select>
+                <button type="submit">Search</button>
+            </form>
+            <p id="search-status" class="status-message">Search to see results.</p>
+            <table id="results-table" style="display:none;">
+                <thead>
+                    <tr>
+                        <th class="sortable" data-sort="Title">Title <span class="sort-arrow"></span></th>
+                        <th class="sortable" data-sort="Size">Size <span class="sort-arrow"></span></th>
+                        <th class="sortable seeders" data-sort="Seeders">Seeders <span class="sort-arrow"></span></th>
+                        <th class="sortable leechers" data-sort="Leechers">Leechers <span class="sort-arrow"></span></th>
+                        <th class="sortable" data-sort="PublishDate">Published <span class="sort-arrow"></span></th>
+                        <th>DL</th>
+                    </tr>
+                </thead>
+                <tbody id="results-body"></tbody>
+            </table>
+            <div id="pagination-controls">
+                <button id="prev-page-btn">Previous</button>
+                <span id="page-info"></span>
+                <button id="next-page-btn">Next</button>
+            </div>
+        </div>
+
+        <div id="logs-page" class="page">
+            <div id="log-controls">
+                <input type="text" id="log-filter" placeholder="Filter logs...">
+            </div>
+            <div id="log-container"></div>
+        </div>
+
+        <div id="status-page" class="page">
+            <h2>Indexer Status</h2>
+            <button id="test-all-btn">Test All Indexers</button>
+            <div id="status-grid" class="status-grid"></div>
+            <div class="flexget-url">
+                <h3>Flexget URL (for 'all' indexers)</h3>
+                <p>Use this URL in your Flexget `torznab` configuration:</p>
+                <input type="text" id="flexget-url-input" readonly>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const loginScreen = document.getElementById('login-screen');
+            const loginForm = document.getElementById('login-form');
+            const passwordInput = document.getElementById('password-input');
+            const loginError = document.getElementById('login-error');
+            const appContainer = document.getElementById('app-container');
+            let sessionToken = '';
+
+            // --- State Management for Search Results ---
+            let allResults = [];
+            let currentPage = 1;
+            const resultsPerPage = 50;
+            let currentSort = {
+                key: 'Seeders',
+                direction: 'desc'
+            };
+
+            // --- AUTHENTICATION ---
+            loginForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                loginError.textContent = '';
+                try {
+                    const response = await fetch('/api/v1/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ password: passwordInput.value })
+                    });
+                    if (!response.ok) throw new Error('Incorrect password');
+                    const data = await response.json();
+                    sessionToken = data.token;
+                    loginScreen.style.display = 'none';
+                    appContainer.style.display = 'block';
+                    initializeApp();
+                } catch (error) {
+                    loginError.textContent = error.message;
+                }
+            });
+            
+            // --- APP INITIALIZATION ---
+            function initializeApp() {
+                // 1. Setup Navigation
+                const navButtons = document.getElementById('nav-buttons');
+                navButtons.addEventListener('click', (e) => {
+                    if (e.target.tagName === 'BUTTON') {
+                        const pageId = e.target.dataset.page;
+                        navButtons.querySelector('.active').classList.remove('active');
+                        e.target.classList.add('active');
+                        document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === pageId));
+                    }
+                });
+
+                // 2. Setup Search Form Listener
+                document.getElementById('search-form').addEventListener('submit', handleSearchSubmit);
+                
+                // 3. Setup Table Header Sorting Listener
+                document.querySelector('#results-table thead').addEventListener('click', (e) => {
+                    const header = e.target.closest('.sortable');
+                    if (header) {
+                        const sortKey = header.dataset.sort;
+                        if (currentSort.key === sortKey) {
+                            currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+                        } else {
+                            currentSort.key = sortKey;
+                            currentSort.direction = ['Size', 'Seeders', 'Leechers', 'PublishDate'].includes(sortKey) ? 'desc' : 'asc';
+                        }
+                        currentPage = 1;
+                        renderCurrentPage();
+                    }
+                });
+                
+                // 4. Setup Pagination Listeners
+                document.getElementById('prev-page-btn').addEventListener('click', () => {
+                    if (currentPage > 1) {
+                        currentPage--;
+                        renderCurrentPage();
+                    }
+                });
+                document.getElementById('next-page-btn').addEventListener('click', () => {
+                    const totalPages = Math.ceil(allResults.length / resultsPerPage);
+                    if (currentPage < totalPages) {
+                        currentPage++;
+                        renderCurrentPage();
+                    }
+                });
+
+                // 5. Load Initial Data
+                loadIndexersAndCategories();
+                loadIndexerStatus();
+                setupLogViewer();
+            }
+            
+            // --- EVENT HANDLERS & API CALLERS ---
+            async function handleSearchSubmit(e) {
+                e.preventDefault();
+                const indexer = new FormData(e.target).get('indexer');
+                const query = new FormData(e.target).get('q');
+                const cat = new FormData(e.target).get('cat');
+                const searchStatus = document.getElementById('search-status');
+                const resultsTable = document.getElementById('results-table');
+                const paginationControls = document.getElementById('pagination-controls');
+                
+                searchStatus.textContent = 'Searching...';
+                searchStatus.style.display = 'block';
+                resultsTable.style.display = 'none';
+                paginationControls.style.display = 'none';
+                
+                try {
+                    const response = await fetchWithAuth(`/api/v1/search?indexer=${indexer}&q=${encodeURIComponent(query)}&cat=${cat}`);
+                    if (!response.ok) throw new Error((await response.json()).error || 'Search request failed');
+                    
+                    allResults = await response.json();
+                    
+                    if (indexer === 'all') {
+                        currentSort = { key: 'Seeders', direction: 'desc' };
+                    } else {
+                        currentSort = { key: 'PublishDate', direction: 'desc' };
+                    }
+                    
+                    currentPage = 1;
+                    renderCurrentPage();
+
+                } catch (error) {
+                    searchStatus.textContent = `Error: ${error.message}`;
+                }
+            }
+            
+            async function loadIndexersAndCategories() {
+                const indexerSelect = document.getElementById('indexer-select');
+                const response = await fetchWithAuth('/api/v1/indexers');
+                const indexers = await response.json();
+                indexerSelect.innerHTML = '<option value="all">All Indexers</option>';
+                for (const key in indexers) {
+                    const option = document.createElement('option');
+                    option.value = key;
+                    option.textContent = indexers[key].name;
+                    indexerSelect.appendChild(option);
+                }
+                updateCategoryDropdown();
+                indexerSelect.addEventListener('change', updateCategoryDropdown);
+            }
+
+            async function updateCategoryDropdown() {
+                const indexerSelect = document.getElementById('indexer-select');
+                const categorySelect = document.getElementById('category-select');
+                const selectedIndexer = indexerSelect.value;
+                categorySelect.innerHTML = '<option value="">All Categories</option>';
+
+                const response = await fetchWithAuth('/api/v1/indexers');
+                const indexers = await response.json();
+
+                let categories = {};
+                if (selectedIndexer === 'all') {
+                    Object.values(indexers).forEach(idx => {
+                        for(const id in idx.categories) {
+                            if (!Object.values(categories).includes(idx.categories[id])) {
+                                categories[id] = idx.categories[id];
+                            }
+                        }
+                    });
+                } else if (indexers[selectedIndexer]) {
+                    categories = indexers[selectedIndexer].categories;
+                }
+                
+                const sortedCategories = Object.entries(categories).sort(([,a],[,b]) => a.localeCompare(b));
+                for (const [id, name] of sortedCategories) {
+                    const option = document.createElement('option');
+                    option.value = id;
+                    option.textContent = name;
+                    categorySelect.appendChild(option);
+                }
+            }
+            
+            async function loadIndexerStatus() {
+                const statusGrid = document.getElementById('status-grid');
+                statusGrid.innerHTML = '';
+                const response = await fetchWithAuth('/api/v1/indexers');
+                const indexers = await response.json();
+                
+                const flexgetRes = await fetchWithAuth('/api/v1/flexget_key');
+                const flexgetData = await flexgetRes.json();
+                const apiKey = flexgetData.key;
+                
+                document.getElementById('flexget-url-input').value = `${window.location.origin}/torznab/all?apikey=${apiKey}`;
+
+                for (const key in indexers) {
+                    const card = document.createElement('div');
+                    card.className = 'status-card';
+                    card.innerHTML = `
+                        <h3>${indexers[key].name}</h3>
+                        <p>Status: <span class="status-indicator status-unknown" id="status-${key}"></span><span id="status-text-${key}">Unknown</span></p>
+                        <div class="status-card-actions">
+                            <button class="test-btn" data-key="${key}">Test</button>
+                            <button class="copy-btn" data-key="${key}">
+                                📝 Copy Link
+                            </button>
+                        </div>
+                    `;
+                    statusGrid.appendChild(card);
+                }
+
+                statusGrid.addEventListener('click', async (e) => {
+                    const testButton = e.target.closest('.test-btn');
+                    const copyButton = e.target.closest('.copy-btn');
+
+                    if (testButton) {
+                        const key = testButton.dataset.key;
+                        const statusText = document.getElementById(`status-text-${key}`);
+                        statusText.textContent = 'Testing...';
+                        const res = await fetchWithAuth(`/api/v1/test_indexer?indexer=${key}`);
+                        const data = await res.json();
+                        document.getElementById(`status-${key}`).className = `status-indicator ${data.ok ? 'status-success' : 'status-error'}`;
+                        statusText.textContent = data.ok ? '🟢 OK' : `Failed: ${data.error}`;
+                    }
+
+                    if (copyButton) {
+                        const key = copyButton.dataset.key;
+                        const urlToCopy = `${window.location.origin}/torznab/${key}?apikey=${apiKey}`;
+                        navigator.clipboard.writeText(urlToCopy).then(() => {
+                            const originalText = copyButton.innerHTML;
+                            copyButton.textContent = 'Copied!';
+                            setTimeout(() => { copyButton.innerHTML = originalText; }, 2000);
+                        });
+                    }
+                });
+
+                document.getElementById('test-all-btn').addEventListener('click', () => {
+                    document.querySelectorAll('.status-card .test-btn').forEach(btn => btn.click());
+                });
+            }
+
+            function setupLogViewer() {
+                const logContainer = document.getElementById('log-container');
+                const logFilter = document.getElementById('log-filter');
+                const ws = new WebSocket(`ws://${window.location.host}/api/v1/logs?token=${sessionToken}`);
+
+                ws.onmessage = (event) => {
+                    const logLine = document.createElement('div');
+                    logLine.className = 'log-line';
+                    logLine.textContent = event.data;
+                    logContainer.appendChild(logLine);
+                    logContainer.scrollTop = logContainer.scrollHeight;
+                    applyLogFilter();
+                };
+                logFilter.addEventListener('input', applyLogFilter);
+                function applyLogFilter() {
+                    const filterText = logFilter.value.toLowerCase();
+                    logContainer.querySelectorAll('.log-line').forEach(line => {
+                        line.style.display = line.textContent.toLowerCase().includes(filterText) ? '' : 'none';
+                    });
+                }
+            }
+
+            // --- RENDER & HELPER FUNCTIONS ---
+            function sortResults() {
+                const { key, direction } = currentSort;
+                const dir = direction === 'asc' ? 1 : -1;
+
+                allResults.sort((a, b) => {
+                    const valA = a[key];
+                    const valB = b[key];
+                    if (typeof valA === 'string') {
+                        return valA.localeCompare(valB) * dir;
+                    }
+                    return (valA - valB) * dir;
+                });
+            }
+
+            function renderCurrentPage() {
+                const searchStatus = document.getElementById('search-status');
+                const resultsTable = document.getElementById('results-table');
+                const resultsBody = document.getElementById('results-body');
+                const paginationControls = document.getElementById('pagination-controls');
+                
+                if (!allResults || allResults.length === 0) {
+                    searchStatus.textContent = 'No results found.';
+                    searchStatus.style.display = 'block';
+                    resultsTable.style.display = 'none';
+                    paginationControls.style.display = 'none';
+                    return;
+                }
+                
+                sortResults();
+                
+                searchStatus.style.display = 'none';
+                resultsTable.style.display = 'table';
+                resultsBody.innerHTML = '';
+
+                const totalPages = Math.ceil(allResults.length / resultsPerPage);
+                const start = (currentPage - 1) * resultsPerPage;
+                const end = start + resultsPerPage;
+                const pageResults = allResults.slice(start, end);
+
+                pageResults.forEach(item => {
+                    const row = document.createElement('tr');
+                    const pubDate = item.PublishDate ? new Date(item.PublishDate).toLocaleString() : 'N/A';
+                    row.innerHTML = `
+                        <td>${item.Title}</td>
+                        <td>${formatBytes(item.Size)}</td>
+                        <td class="seeders">${item.Seeders}</td>
+                        <td class="leechers">${item.Leechers}</td>
+                        <td>${pubDate}</td>
+                        <td class="download-cell">
+                            <a href="${item.DownloadURL}" title="Get magnet link or torrent file">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                            </a>
+                        </td>
+                    `;
+                    resultsBody.appendChild(row);
+                });
+
+                document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages}`;
+                document.getElementById('prev-page-btn').disabled = currentPage === 1;
+                document.getElementById('next-page-btn').disabled = currentPage === totalPages;
+                paginationControls.style.display = 'flex';
+                
+                document.querySelectorAll('#results-table thead th.sortable').forEach(th => {
+                    const sortKey = th.dataset.sort;
+                    const arrow = th.querySelector('.sort-arrow');
+                    if (sortKey === currentSort.key) {
+                        th.classList.add('active');
+                        arrow.innerHTML = currentSort.direction === 'asc' ? '▲' : '▼';
+                    } else {
+                        th.classList.remove('active');
+                        arrow.innerHTML = '';
+                    }
+                });
+            }
+
+            async function fetchWithAuth(url, options = {}) {
+                const headers = { ...options.headers, 'Authorization': `Bearer ${sessionToken}` };
+                const response = await fetch(url, { ...options, headers });
+                if (response.status === 401) { window.location.reload(); }
+                return response;
+            }
+
+            function formatBytes(bytes, decimals = 2) {
+                if (!bytes) return '0 Bytes';
+                const k = 1024;
+                const dm = decimals < 0 ? 0 : decimals;
+                const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+            }
+        });
+    </script>
+</body>
+</html>

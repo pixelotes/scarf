@@ -1,0 +1,42 @@
+key: "therarbg"
+name: "TheRARBG"
+description: "A Public site inspired by RARBG.to for MOVIES / TV / GENERAL"
+language: "en-US"
+schedule: "@every 1h"
+
+search:
+  type: "json"
+
+  # This URL template builds the complex path required by the API.
+  # It adds the category and keywords if they are provided by the user.
+  # If no search query is provided, it defaults to browsing the last 10 days.
+  url: >-
+    https://therarbg.to/get-posts/order:-a{{if .Category}}:category:{{.Category}}{{end}}{{if .Query}}:keywords:{{.Query}}{{else}}:time:10D{{end}}:paginate_by:100:format:json/
+
+  results:
+    # The API returns a simple array of results under the "results" key.
+    path: "results"
+
+    fields:
+      # These are all simple key lookups from the JSON response.
+      title: "n"
+      size: "s"
+      seeders: "se"
+      leechers: "le"
+      publish_date: "a" # The API provides a standard datetime string.
+
+      # We construct the magnet link from the infohash ('h') and title ('n').
+      download_url: "magnet:?xt=urn:btih:{{.Result.h}}&dn={{.Result.n}}"
+
+# The key is the value sent in the URL, the value is the display name in the UI.
+categories:
+  "Movies": "Movies"
+  "TV": "TV"
+  "Games": "Games"
+  "Music": "Music"
+  "Anime": "Anime"
+  "Documentaries": "Documentaries"
+  "Apps": "Apps"
+  "Other": "Other"
+  "Books": "Books"
+  "XXX": "XXX"
