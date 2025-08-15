@@ -13,29 +13,31 @@ search:
     limit: 50
     sort_by: "date_added"
     order_by: "desc"
+    quality: "{{.Category}}"
 
   results:
-    # Path to the parent objects (the movies)
     path: "data.movies"
-    # For each movie, iterate through this sub-path (the torrents)
     sub_path: "torrents"
     fields:
-      # Use the new Parent/Result context to build a detailed title.
-      # {{.Parent.title_long}} comes from the movie object.
-      # {{.Result.quality}} and {{.Result.type}} come from the torrent object.
-      title: "{{.Parent.title_long}} [{{.Result.quality}}] [{{if eq .Result.type \"web\"}}WEBRip{{else}}BluRay{{end}}]"
-      
-      # Construct the magnet link using the hash from the torrent and the title from the movie.
-      download_url: "magnet:?xt=urn:btih:{{.Result.hash}}&dn={{.Parent.title_long}}"
-      
-      # These fields are all from the torrent object (.Result).
-      size: "size_bytes"
-      seeders: "seeds"
-      leechers: "peers"
-      publish_date: "date_uploaded_unix"
+      title:
+        selector: "{{.Parent.title_long}} [{{.Result.quality}}] [{{if eq .Result.type \"web\"}}WEBRip{{else}}BluRay{{end}}]"
+      download_url:
+        selector: "magnet:?xt=urn:btih:{{.Result.hash}}&dn={{.Parent.title_long}}"
+      size:
+        selector: "size_bytes"
+      seeders:
+        selector: "seeds"
+      leechers:
+        selector: "peers"
+      publish_date:
+        selector: "date_uploaded_unix"
 
-# Dummy categories for UI filtering, as the API doesn't use them for searching.
-categories:
-  "Movies/HD": "720p"
-  "Movies/UHD": "1080p"
-  "Movies/3D": "3D"
+category_mappings:
+  - indexer_cat: "720p"
+    torznab_cat: 2040
+  - indexer_cat: "1080p"
+    torznab_cat: 2040
+  - indexer_cat: "2160p"
+    torznab_cat: 2050
+  - indexer_cat: "3D"
+    torznab_cat: 2060

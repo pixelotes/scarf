@@ -10,26 +10,38 @@ search:
 
   params:
     search: "{{.Query}}"
-    c: "0" # Default category for "all", will be overwritten if user selects one
+    c: "{{.Category}}"
 
   results:
     rows_selector: "table.maintable > tbody > tr:has(a[href^='magnet:?xt='])"
-
     fields:
-      title: "a[href^='/details.php?id=']"
-      download_url: "a[href^='magnet:?xt=']@href"
-      size: "td:nth-child(3)"
-      seeders: "td:nth-child(4)"
-      leechers: "td:nth-child(5)"
-      publish_date: "div.sub" # Our code now finds the date inside this div's text
+      title:
+        selector: "a[href^='/details.php?id=']"
+      download_url:
+        selector: "a[href^='magnet:?xt=']@href"
+      size:
+        selector: "td:nth-child(3)"
+      seeders:
+        selector: "td:nth-child(4)"
+      leechers:
+        selector: "td:nth-child(5)"
+      publish_date:
+        selector: "div.sub"
 
-# The key is the category ID sent to the tracker, the value is the display name in the UI.
-categories:
-  "1": "Movies"
-  "2": "TV"
-  "3": "Games"
-  "4": "Music"
-  "5": "Apps"
-  "6": "XXX"
-  "7": "Anime"
-  "8": "Other"
+category_mappings:
+  - indexer_cat: "1"
+    torznab_cat: 2000
+  - indexer_cat: "2"
+    torznab_cat: 5000
+  - indexer_cat: "3"
+    torznab_cat: 4050
+  - indexer_cat: "4"
+    torznab_cat: 3000
+  - indexer_cat: "5"
+    torznab_cat: 4000
+  - indexer_cat: "6"
+    torznab_cat: 6000
+  - indexer_cat: "7"
+    torznab_cat: 5080
+  - indexer_cat: "8"
+    torznab_cat: 8000

@@ -16,17 +16,20 @@ search:
 
   results:
     rows_selector: "div.grid_12 > div[id^='rel']"
-
     fields:
-      title: "div.release_leftover > div.release_text_contents"
-      # The download link is relative, but our app will make it absolute.
-      download_url: "a[href^='/download/']@href"
-      size: "div.release_size"
-      publish_date: "div.release_20" # Our app now understands this custom date format.
-      
-      # Our app now understands static numbers for fields.
-      seeders: "1"
-      leechers: "1"
+      title:
+        selector: "div.release_leftover > div.release_text_contents"
+      download_url:
+        selector: "a[href^='/download/']@href"
+      size:
+        selector: "div.release_size"
+      publish_date:
+        selector: "div.release_20"
+      seeders:
+        selector: "1"
+      leechers:
+        selector: "1"
 
-categories:
-  "Anime": "Anime"
+category_mappings:
+  - indexer_cat: "Anime"
+    torznab_cat: 5080

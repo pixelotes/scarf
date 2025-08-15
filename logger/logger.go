@@ -1,10 +1,13 @@
 package logger
 
 import (
-	"log"
 	"io"
-	"sync"
+	"log"
+	"log/slog"
 	"net/http"
+	"os"
+	"sync"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -15,13 +18,31 @@ var (
 		unregister: make(chan *websocket.Conn),
 		messages:   make(chan []byte),
 	}
-	logWriter io.Writer
 )
 
-func init() {
+// Init initializes the global structured logger.
+func Init(debug bool) {
 	go broadcaster.run()
-	logWriter = io.MultiWriter(log.Writer(), broadcaster)
-	log.SetOutput(logWriter)
+
+	logLevel := slog.LevelInfo
+	if debug {
+		logLevel = slog.LevelDebug
+	}
+
+	// Create a handler that writes to both stdout and the WebSocket broadcaster.
+	// Using a TextHandler makes logs human-readable in the console and UI.
+	handler := slog.NewTextHandler(io.MultiWriter(os.Stdout, broadcaster), &slog.HandlerOptions{
+		Level:     logLevel,
+		AddSource: true, // Adds source file and line number, useful for debugging.
+	})
+
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+
+	// Redirect the standard `log` package to our new structured logger.
+	// This captures logs from third-party libraries that still use the old logger.
+	log.SetFlags(0)
+	log.SetOutput(slog.NewLogLogger(logger.Handler(), slog.LevelInfo).Writer())
 }
 
 // Broadcaster manages WebSocket clients
@@ -48,9 +69,14 @@ func (b *Broadcaster) run() {
 			}
 			b.mu.Unlock()
 		case message := <-b.messages:
+			// Make a copy of the message slice to avoid data races
+			msgCopy := make([]byte, len(message))
+			copy(msgCopy, message)
+
 			b.mu.Lock()
 			for client := range b.clients {
-				if err := client.WriteMessage(websocket.TextMessage, message); err != nil {
+				if err := client.WriteMessage(websocket.TextMessage, msgCopy); err != nil {
+					// Unregister the client in a separate goroutine to avoid deadlock
 					go func(c *websocket.Conn) { b.unregister <- c }(client)
 				}
 			}
@@ -71,7 +97,7 @@ func WebSocketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("Failed to upgrade WebSocket: %v", err)
+		slog.Warn("Failed to upgrade WebSocket", "error", err)
 		return
 	}
 	broadcaster.register <- conn

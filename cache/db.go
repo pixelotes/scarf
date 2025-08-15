@@ -2,7 +2,7 @@ package cache
 
 import (
 	"database/sql"
-	"log"
+	"log/slog"
 	"time"
 
 	_ "modernc.org/sqlite" // Pure Go SQLite driver
@@ -20,7 +20,6 @@ func NewCache(dataSourceName string) (*Cache, error) {
 		return nil, err
 	}
 
-	// Create table if it doesn't exist
 	query := `
     CREATE TABLE IF NOT EXISTS cache (
         key TEXT PRIMARY KEY,
@@ -32,13 +31,12 @@ func NewCache(dataSourceName string) (*Cache, error) {
 		return nil, err
 	}
 
-	// Start a background routine to clean expired items
 	go func() {
 		for {
 			time.Sleep(1 * time.Hour)
 			_, err := db.Exec(`DELETE FROM cache WHERE expires_at < ?`, time.Now().Unix())
 			if err != nil {
-				log.Printf("Error cleaning cache: %v", err)
+				slog.Error("Error cleaning cache", "error", err)
 			}
 		}
 	}()
@@ -56,8 +54,7 @@ func (c *Cache) Get(key string) ([]byte, bool) {
 	}
 
 	if time.Now().Unix() > expiresAt {
-		// Item is expired
-		go c.db.Exec(`DELETE FROM cache WHERE key = ?`, key) // clean up in background
+		go c.db.Exec(`DELETE FROM cache WHERE key = ?`, key)
 		return nil, false
 	}
 	return value, true
@@ -68,6 +65,6 @@ func (c *Cache) Set(key string, value []byte, ttl time.Duration) {
 	expiresAt := time.Now().Add(ttl).Unix()
 	_, err := c.db.Exec(`INSERT OR REPLACE INTO cache (key, value, expires_at) VALUES (?, ?, ?)`, key, value, expiresAt)
 	if err != nil {
-		log.Printf("Error setting cache for key %s: %v", key, err)
+		slog.Error("Error setting cache", "key", key, "error", err)
 	}
 }

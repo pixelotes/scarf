@@ -1,18 +1,20 @@
 package main
 
 import (
-	"fmt"
-	"log"
+	"context"
+	"log/slog"
 	"net/http"
-	"time" // FIX: Re-added missing import
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"go-indexer/api"
 	"go-indexer/auth"
 	"go-indexer/cache"
 	"go-indexer/config"
 	"go-indexer/indexer"
-	_ "go-indexer/logger" // Import for side-effects (starts logger broadcaster)
-	"go-indexer/logger"   // Import again to use the WebSocketHandler
+	"go-indexer/logger"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -26,89 +28,117 @@ func main() {
 	cacheTTL := config.GetEnvAsDuration("CACHE_TTL", 15*time.Minute)
 	dbPath := config.GetEnv("DB_PATH", "./indexer-cache.db")
 	webUIEnabled := config.GetEnvAsBool("WEB_UI", true)
+	debugMode := config.GetEnvAsBool("DEBUG", false)
 
 	// Security Configuration
 	uiPassword := config.GetEnv("UI_PASSWORD", "password")
 	flexgetAPIKey := config.GetEnv("FLEXGET_API_KEY", config.GenerateRandomString(16))
 	jwtSecret := config.GetEnv("JWT_SECRET", config.GenerateRandomString(32))
 
-	log.Println("--- Go Indexer Starting Up ---")
-	log.Printf("Flexget API Key: %s", flexgetAPIKey)
-
 	// --- Initialization ---
+	logger.Init(debugMode) // Initialize the logger first
 	auth.Configure(jwtSecret)
+
+	slog.Info("--- Go Indexer Starting Up ---", "log_level", ifThen(debugMode, "DEBUG", "INFO"))
+	slog.Info("Flexget API Key", "key", flexgetAPIKey)
+
 	appCache, err := cache.NewCache(dbPath)
 	if err != nil {
-		log.Fatalf("Failed to initialize cache: %v", err)
+		slog.Error("Failed to initialize cache", "error", err)
+		os.Exit(1)
 	}
-	log.Printf("Cache initialized at %s", dbPath)
+	slog.Info("Cache initialized", "path", dbPath)
 
 	idxManager, err := indexer.NewManager(defPath)
 	if err != nil {
-		log.Fatalf("Failed to load indexer definitions: %v", err)
+		slog.Error("Failed to load indexer definitions", "error", err)
+		os.Exit(1)
 	}
-	if len(idxManager.Indexers) == 0 {
-		log.Println("Warning: No indexer definitions were loaded.")
+	if len(idxManager.GetAllIndexers()) == 0 {
+		slog.Warn("No indexer definitions were loaded.")
 	}
 
 	// --- Scheduler setup ---
-	// FIX: Re-added the scheduler logic that was previously commented out.
 	c := cron.New()
-	for key, def := range idxManager.Indexers {
-		if def.Schedule == "" {
-			continue
-		}
-		indexerKey, indexerDef := key, def
-		_, err := c.AddFunc(def.Schedule, func() {
-			log.Printf("Scheduler: Running job for %s", indexerDef.Name)
-			cacheKey := fmt.Sprintf("%x", "rss:"+indexerKey)
-			results, err := idxManager.Search(indexerKey, "", "")
-			if err != nil {
-				log.Printf("Scheduler: Failed to fetch latest for %s: %v", indexerDef.Name, err)
-				return
+
+	// Function to update scheduled jobs when indexers are reloaded
+	updateScheduledJobs := func() {
+		slog.Info("Updating scheduled jobs after indexer reload...")
+
+		// Stop existing cron jobs
+		c.Stop()
+
+		// Create a new cron scheduler
+		c = cron.New()
+
+		// Re-add jobs for all indexers with schedules
+		for key, def := range idxManager.GetAllIndexers() {
+			if def.Schedule == "" {
+				continue
 			}
-			api.CacheRSSFeed(appCache, cacheKey, cacheTTL, indexerDef, results)
-			log.Printf("Scheduler: Successfully cached %d releases for %s", len(results), indexerDef.Name)
-		})
-		if err != nil {
-			log.Printf("Warning: Could not schedule job for %s: %v", def.Name, err)
+			indexerKey, indexerDef := key, def
+			_, err := c.AddFunc(def.Schedule, func() {
+				slog.Info("Scheduler: Running job", "indexer", indexerDef.Name)
+				results, err := idxManager.Search(indexerKey, "", "")
+				if err != nil {
+					slog.Error("Scheduler: Failed to fetch latest", "indexer", indexerDef.Name, "error", err)
+					return
+				}
+				slog.Info("Scheduler: Successfully fetched releases", "indexer", indexerDef.Name, "count", len(results))
+			})
+			if err != nil {
+				slog.Warn("Could not schedule job", "indexer", def.Name, "error", err)
+			}
+		}
+
+		if len(c.Entries()) > 0 {
+			c.Start()
+			slog.Info("Scheduler updated", "jobs", len(c.Entries()))
 		}
 	}
-	if len(c.Entries()) > 0 {
-		c.Start()
-		log.Printf("Scheduler started with %d jobs.", len(c.Entries()))
-	}
+
+	// Set up initial scheduled jobs
+	updateScheduledJobs()
+
+	// Set the reload callback for the indexer manager
+	idxManager.SetReloadCallback(updateScheduledJobs)
 
 	// --- API Server Setup ---
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger) // Chi's logger middleware
+	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	// FIX: APIHandler is now correctly initialized with all required fields.
-	apiHandler := &api.APIHandler{
-		Manager:       idxManager,
-		Cache:         appCache,
-		CacheTTL:      cacheTTL,
-		FlexgetAPIKey: flexgetAPIKey,
-		UIPassword:    uiPassword,
-	}
+	// Create API handler with the new constructor
+	apiHandler := api.NewAPIHandler(
+		idxManager,
+		appCache,
+		cacheTTL,
+		flexgetAPIKey,
+		uiPassword,
+	)
 
 	// --- Public / Unauthenticated Routes ---
+	r.Get("/health", apiHandler.HealthCheck)
+	r.Get("/api/health", apiHandler.HealthCheck)
+
+	r.Get("/torznab/{indexer}/api", apiHandler.TorznabAPI)
 	r.Get("/torznab/{indexer}", apiHandler.TorznabSearch)
 
 	if !webUIEnabled {
-		log.Println("Web UI is disabled. Set WEB_UI=true to enable it.")
-		log.Printf("Starting API-only server on port %s...", port)
-		http.ListenAndServe(":"+port, r)
+		slog.Info("Web UI is disabled. Set WEB_UI=true to enable it.")
+		slog.Info("Health check available", "url", "http://localhost:"+port+"/health")
+		slog.Info("Starting API-only server", "port", port)
+		server := &http.Server{Addr: ":" + port, Handler: r}
+		startServer(server, idxManager)
 		return
 	}
 
 	// --- Web UI Routes (if enabled) ---
-	log.Printf("Web UI is enabled. UI Password: %s", uiPassword)
-	log.Printf("Starting server on http://localhost:%s", port)
-	
+	slog.Info("Web UI is enabled", "password", uiPassword)
+	slog.Info("Server starting", "url", "http://localhost:"+port)
+
 	r.Post("/api/v1/login", apiHandler.Login)
 
 	r.Group(func(r chi.Router) {
@@ -119,17 +149,52 @@ func main() {
 		r.Get("/api/v1/flexget_key", apiHandler.GetFlexgetAPIKey)
 		r.Get("/api/v1/logs", logger.WebSocketHandler)
 	})
-	
-	fs := http.StripPrefix("/", http.FileServer(http.Dir("./web")))
-	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
-		if _, err := http.Dir("./web").Open(r.URL.Path); err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		fs.ServeHTTP(w, r)
-	})
 
-	if err := http.ListenAndServe(":"+port, r); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+	fs := http.FileServer(http.Dir("./web"))
+	r.Handle("/*", fs)
+
+	server := &http.Server{Addr: ":" + port, Handler: r}
+	startServer(server, idxManager)
+}
+
+// startServer handles graceful shutdown
+func startServer(server *http.Server, idxManager *indexer.Manager) {
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		slog.Info("Server listening", "address", server.Addr)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("Failed to start server", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	sig := <-sigChan
+	slog.Info("Received signal, shutting down gracefully", "signal", sig)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		slog.Error("Server shutdown error", "error", err)
+	} else {
+		slog.Info("Server shutdown completed")
 	}
+
+	if err := idxManager.Close(); err != nil {
+		slog.Error("Error closing indexer manager", "error", err)
+	} else {
+		slog.Info("Indexer manager closed")
+	}
+
+	slog.Info("Application shutdown complete")
+}
+
+// ifThen is a simple ternary helper
+func ifThen[T any](condition bool, a, b T) T {
+	if condition {
+		return a
+	}
+	return b
 }

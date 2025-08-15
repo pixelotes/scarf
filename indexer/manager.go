@@ -2,9 +2,11 @@ package indexer
 
 import (
 	"bytes"
+	"crypto/tls"
 	"fmt"
+	"go-indexer/config"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -13,85 +15,208 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/fsnotify/fsnotify"
 	"github.com/tidwall/gjson"
 	"golang.org/x/net/publicsuffix"
 	"gopkg.in/yaml.v3"
 )
 
 var (
-	sizeRegex        = regexp.MustCompile(`(?i)(\d+(\.\d+)?)\s*(kb|mb|gb|tb)`)
-	timeagoRegex     = regexp.MustCompile(`(\d+)\s+(min|hour|day|week|month|year)s?\s+ago`)
-	timeagoDayRegex  = regexp.MustCompile(`(?i)yesterday`)
-	dateTimeRegex    = regexp.MustCompile(`\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}`)
+	sizeRegex       = regexp.MustCompile(`(?i)(\d+(\.\d+)?)\s*(kb|mb|gb|tb)`)
+	timeagoRegex    = regexp.MustCompile(`(\d+)\s+(min|hour|day|week|month|year)s?\s+ago`)
+	timeagoDayRegex = regexp.MustCompile(`(?i)yesterday`)
+	dateTimeRegex   = regexp.MustCompile(`\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}`)
 )
 
 // Manager holds all loaded indexer definitions and authenticated clients
 type Manager struct {
-	Indexers      map[string]*Definition
-	authClients   map[string]*http.Client
-	defaultClient *http.Client
+	Indexers        map[string]*Definition
+	authClients     map[string]*http.Client
+	defaultClient   *http.Client
+	definitionsPath string
+	watcher         *fsnotify.Watcher
+	reloadCallback  func()
+	mu              sync.RWMutex
+}
+
+// newHttpClient creates a new HTTP client with our logging transport and custom TLS settings.
+func newHttpClient(jar http.CookieJar) *http.Client {
+	// Read the environment variable to decide whether to skip TLS verification.
+	skipVerify := config.GetEnvAsBool("INSECURE_SKIP_VERIFY", false)
+
+	// Create a custom transport based on the default, but with our TLS setting.
+	// We clone the default transport to inherit its settings (like proxy handling).
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: skipVerify}
+
+	if skipVerify {
+		slog.Warn("TLS certificate verification is disabled. Use with caution.")
+	}
+
+	return &http.Client{
+		Jar:     jar,
+		Timeout: 20 * time.Second,
+		Transport: &loggingRoundTripper{
+			proxied: transport, // Use our custom transport
+		},
+	}
 }
 
 // NewManager creates a manager and loads definitions from a given path
 func NewManager(definitionsPath string) (*Manager, error) {
-	m := &Manager{
-		Indexers:      make(map[string]*Definition),
-		authClients:   make(map[string]*http.Client),
-		defaultClient: &http.Client{Timeout: 20 * time.Second},
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create file watcher: %w", err)
 	}
 
-	files, err := os.ReadDir(definitionsPath)
+	m := &Manager{
+		Indexers:        make(map[string]*Definition),
+		authClients:     make(map[string]*http.Client),
+		defaultClient:   newHttpClient(nil), // Use the new client
+		definitionsPath: definitionsPath,
+		watcher:         watcher,
+	}
+
+	if err := m.loadDefinitions(); err != nil {
+		return nil, err
+	}
+
+	go m.watchForChanges()
+
+	if err := m.watcher.Add(definitionsPath); err != nil {
+		slog.Warn("Could not start watching definitions path", "path", definitionsPath, "error", err)
+	}
+
+	return m, nil
+}
+
+// GetIndexer safely retrieves an indexer definition by key.
+func (m *Manager) GetIndexer(key string) (*Definition, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	def, ok := m.Indexers[key]
+	return def, ok
+}
+
+// loadDefinitions reads all YAML files from the definitions path and populates the manager
+func (m *Manager) loadDefinitions() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	slog.Info("Reloading all indexer definitions...")
+	m.Indexers = make(map[string]*Definition)
+	m.authClients = make(map[string]*http.Client)
+
+	files, err := os.ReadDir(m.definitionsPath)
 	if err != nil {
-		return nil, fmt.Errorf("could not read definitions directory: %w", err)
+		return fmt.Errorf("could not read definitions directory: %w", err)
 	}
 
 	for _, file := range files {
 		if !strings.HasSuffix(file.Name(), ".yml") && !strings.HasSuffix(file.Name(), ".yaml") {
 			continue
 		}
-		path := filepath.Join(definitionsPath, file.Name())
-		data, err := os.ReadFile(path)
-		if err != nil {
-			log.Printf("Warning: could not read file %s: %v", path, err)
-			continue
-		}
-
-		var def Definition
-		if err := yaml.Unmarshal(data, &def); err != nil {
-			log.Printf("Warning: could not parse definition %s: %v", path, err)
-			continue
-		}
-
-		for key := range def.UserConfig {
-			envKey := strings.ToUpper(fmt.Sprintf("%s_%s", def.Key, key))
-			if val, ok := os.LookupEnv(envKey); ok {
-				def.UserConfig[key] = val
-			}
-		}
-
-		m.Indexers[def.Key] = &def
-		log.Printf("Loaded indexer definition: %s", def.Name)
-
-		if def.Login.URL != "" {
-			if err := m.authenticate(def.Key); err != nil {
-				log.Printf("Warning: initial authentication failed for %s: %v", def.Name, err)
-			}
+		path := filepath.Join(m.definitionsPath, file.Name())
+		if err := m.loadDefinition(path); err != nil {
+			slog.Warn("Skipping definition file due to error", "file", file.Name(), "error", err)
 		}
 	}
-	return m, nil
+
+	if m.reloadCallback != nil {
+		m.reloadCallback()
+	}
+	slog.Info("Indexer definitions reloaded", "count", len(m.Indexers))
+	return nil
+}
+
+// loadDefinition loads a single definition file and adds it to the manager
+func (m *Manager) loadDefinition(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("could not read file: %w", err)
+	}
+
+	var def Definition
+	if err := yaml.Unmarshal(data, &def); err != nil {
+		return fmt.Errorf("could not parse yaml: %w", err)
+	}
+
+	// Load user-specific config from environment variables
+	for key := range def.UserConfig {
+		envKey := strings.ToUpper(fmt.Sprintf("%s_%s", def.Key, key))
+		if val, ok := os.LookupEnv(envKey); ok {
+			def.UserConfig[key] = val
+		}
+	}
+
+	m.Indexers[def.Key] = &def
+	slog.Info("Loaded indexer definition", "name", def.Name)
+
+	if def.Login.URL != "" {
+		if err := m.authenticate(def.Key); err != nil {
+			slog.Warn("Initial authentication failed", "indexer", def.Name, "error", err)
+		}
+	}
+	return nil
+}
+
+// watchForChanges listens for events from the file watcher and triggers reloads
+func (m *Manager) watchForChanges() {
+	for {
+		select {
+		case event, ok := <-m.watcher.Events:
+			if !ok {
+				return
+			}
+			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Remove) {
+				slog.Info("Change detected in definitions folder, reloading...", "event", event.String())
+				if err := m.loadDefinitions(); err != nil {
+					slog.Error("Error reloading definitions", "error", err)
+				}
+			}
+		case err, ok := <-m.watcher.Errors:
+			if !ok {
+				return
+			}
+			slog.Error("File watcher error", "error", err)
+		}
+	}
+}
+
+// GetAllIndexers returns the currently loaded indexer definitions
+func (m *Manager) GetAllIndexers() map[string]*Definition {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.Indexers
+}
+
+// SetReloadCallback registers a function to be called after definitions are reloaded
+func (m *Manager) SetReloadCallback(cb func()) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.reloadCallback = cb
+}
+
+// Close stops the file watcher
+func (m *Manager) Close() error {
+	return m.watcher.Close()
 }
 
 // authenticate handles the login process for a tracker
 func (m *Manager) authenticate(key string) error {
-	def := m.Indexers[key]
-	log.Printf("Authenticating with %s...", def.Name)
+	def, ok := m.GetIndexer(key)
+	if !ok {
+		return fmt.Errorf("indexer not found: %s", key)
+	}
+	slog.Info("Authenticating", "indexer", def.Name)
 
 	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
-	client := &http.Client{Jar: jar, Timeout: 20 * time.Second}
+	client := newHttpClient(jar) // Use the new client
 
 	form := url.Values{}
 	for k, vTpl := range def.Login.Body {
@@ -116,13 +241,17 @@ func (m *Manager) authenticate(key string) error {
 		return fmt.Errorf("login success check failed; did not find '%s' in response", def.Login.SuccessCheck.Contains)
 	}
 
-	log.Printf("Successfully authenticated with %s", def.Name)
+	slog.Info("Successfully authenticated", "indexer", def.Name)
+	m.mu.Lock()
 	m.authClients[key] = client
+	m.mu.Unlock()
 	return nil
 }
 
 // getClient returns an authenticated client if available, otherwise the default client
 func (m *Manager) getClient(key string) *http.Client {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	if client, ok := m.authClients[key]; ok {
 		return client
 	}
@@ -135,22 +264,39 @@ func (m *Manager) Test(indexerKey string) error {
 	return err
 }
 
-// Search queries a specific indexer
-// Search queries a specific indexer, with support for both GET and POST requests.
+// Search queries a specific indexer, translating standard categories to indexer-specific ones.
 func (m *Manager) Search(indexerKey, query, category string) ([]SearchResult, error) {
-	def, ok := m.Indexers[indexerKey]
+	def, ok := m.GetIndexer(indexerKey)
 	if !ok {
 		return nil, fmt.Errorf("indexer '%s' not found", indexerKey)
 	}
+
+	slog.Debug("Starting search", "indexer", def.Name, "query", query, "category", category)
+
+	// --- START: Category Mapping Logic ---
+	indexerCategory := category // Default to the provided category
+	if catID, err := strconv.Atoi(category); err == nil {
+		// It's a numeric category, try to find the mapping
+		for _, mapping := range def.CategoryMappings {
+			if mapping.TorznabCategory == catID {
+				indexerCategory = mapping.IndexerCategory
+				slog.Debug("Mapped Torznab category to indexer category",
+					"torznab_cat", catID,
+					"indexer_cat", indexerCategory,
+				)
+				break
+			}
+		}
+	}
+	// --- END: Category Mapping Logic ---
 
 	client := m.getClient(indexerKey)
 	tplData := struct {
 		Query    string
 		Config   map[string]string
 		Category string
-	}{query, def.UserConfig, category}
+	}{query, def.UserConfig, indexerCategory} // Use the potentially mapped category
 
-	// Determine method, defaulting to GET
 	methodTpl := def.Search.Method
 	if methodTpl == "" {
 		methodTpl = "GET"
@@ -165,33 +311,31 @@ func (m *Manager) Search(indexerKey, query, category string) ([]SearchResult, er
 
 	var req *http.Request
 
-	// Handle POST requests
 	if method == "POST" {
 		bodyTpl := def.Search.Body
 		bodyString, err := m.executeTemplate(bodyTpl, tplData)
 		if err != nil {
 			return nil, fmt.Errorf("invalid body template: %w", err)
 		}
-		
+
 		req, err = http.NewRequest("POST", baseURL, strings.NewReader(bodyString))
 		if err != nil {
 			return nil, err
 		}
-		
+
 		contentType := def.Search.ContentType
 		if contentType == "" {
-			contentType = "application/x-www-form-urlencoded" // Default content type
+			contentType = "application/x-www-form-urlencoded"
 		}
 		req.Header.Set("Content-Type", contentType)
-	} else { // Handle GET requests
+	} else {
 		req, err = http.NewRequest("GET", baseURL, nil)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		q := req.URL.Query()
 		for key, valTpl := range def.Search.Params {
-			// Try to execute as template, if it fails, use the raw string value
 			val, err := m.executeTemplate(valTpl, tplData)
 			if err != nil {
 				q.Set(key, valTpl)
@@ -199,18 +343,9 @@ func (m *Manager) Search(indexerKey, query, category string) ([]SearchResult, er
 				q.Set(key, val)
 			}
 		}
-
-		if category != "" {
-			if catVal, ok := def.Categories[category]; ok {
-				q.Set("cat", catVal)
-			} else {
-				q.Set("cat", category)
-			}
-		}
 		req.URL.RawQuery = q.Encode()
 	}
 
-	// This part is the same for both GET and POST
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("search request failed: %w", err)
@@ -219,7 +354,12 @@ func (m *Manager) Search(indexerKey, query, category string) ([]SearchResult, er
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("search failed, status: %s, body: %s", resp.Status, body)
+		slog.Warn("Search failed with non-200 status",
+			"indexer", def.Name,
+			"status", resp.Status,
+			"body", string(body),
+		)
+		return nil, fmt.Errorf("search failed, status: %s", resp.Status)
 	}
 
 	switch def.Search.Type {
@@ -230,6 +370,118 @@ func (m *Manager) Search(indexerKey, query, category string) ([]SearchResult, er
 	default:
 		return nil, fmt.Errorf("unsupported search type: '%s'", def.Search.Type)
 	}
+}
+
+// HELPER FUNCTION: extractText safely extracts text from a selection, handling optional removals.
+func (m *Manager) extractText(s *goquery.Selection, selector Selector) string {
+	selection := s.Find(selector.Selector)
+	if selector.Remove != "" {
+		selection.Find(selector.Remove).Remove()
+	}
+	return strings.TrimSpace(selection.Text())
+}
+
+// HELPER FUNCTION: extractAttr safely extracts an attribute, handling complex selectors.
+func (m *Manager) extractAttr(s *goquery.Selection, selector Selector) string {
+	parts := strings.Split(selector.Selector, "@")
+	if len(parts) == 2 {
+		val, _ := s.Find(parts[0]).Attr(parts[1])
+		return val
+	}
+	return m.extractText(s, selector)
+}
+
+// parseHTMLResults processes an HTML page response using goquery, with support for two-step fetching.
+func (m *Manager) parseHTMLResults(body io.Reader, def *Definition) ([]SearchResult, error) {
+	doc, err := goquery.NewDocumentFromReader(body)
+	if err != nil {
+		return nil, err
+	}
+	fields := def.Search.Results.Fields
+	var results []SearchResult
+	var wg sync.WaitGroup
+	resultsChan := make(chan SearchResult, 100)
+
+	doc.Find(def.Search.Results.RowsSelector).Each(func(i int, s *goquery.Selection) {
+		var sr SearchResult
+		sr.Title = m.extractAttr(s, fields.Title)
+		sr.Size = m.parseSize(m.extractText(s, fields.Size))
+		sr.Seeders, _ = strconv.Atoi(m.extractText(s, fields.Seeders))
+		sr.Leechers, _ = strconv.Atoi(m.extractText(s, fields.Leechers))
+
+		dateStr := m.extractText(s, fields.PublishDate)
+		if dateStr != "" {
+			pubDate, err := parseFuzzyDate(dateStr)
+			if err == nil {
+				sr.PublishDate = pubDate
+			}
+		}
+
+		// Handle two-step fetching if required
+		detailsURL := m.absURL(def.Search.URL, m.extractAttr(s, fields.DetailsURL))
+		if detailsURL != "" && def.Search.Results.DownloadSelector != "" {
+			wg.Add(1)
+			go func(searchResult SearchResult, detailURL string) {
+				defer wg.Done()
+				downloadSelector := Selector{Selector: def.Search.Results.DownloadSelector}
+				downloadURL, err := m.fetchDownloadLinkFromDetails(detailURL, downloadSelector)
+				if err != nil {
+					slog.Warn("Failed to fetch details page", "url", detailURL, "error", err)
+					return
+				}
+				searchResult.DownloadURL = downloadURL
+				if searchResult.Title != "" && searchResult.DownloadURL != "" {
+					resultsChan <- searchResult
+				}
+			}(sr, detailsURL)
+		} else {
+			// Single-step fetch
+			sr.DownloadURL = m.absURL(def.Search.URL, m.extractAttr(s, fields.DownloadURL))
+			if sr.Title != "" && sr.DownloadURL != "" {
+				results = append(results, sr)
+			}
+		}
+	})
+
+	wg.Wait()
+	close(resultsChan)
+
+	for result := range resultsChan {
+		results = append(results, result)
+	}
+
+	return results, nil
+}
+
+// fetchDownloadLinkFromDetails makes a second HTTP request to a details page to find the final download link.
+func (m *Manager) fetchDownloadLinkFromDetails(detailURL string, selector Selector) (string, error) {
+	client := m.getClient("") // Use default client for this
+	req, err := http.NewRequest("GET", detailURL, nil)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("details page returned status %s", resp.Status)
+	}
+
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	downloadLink := m.extractAttr(doc.Selection, selector)
+	if downloadLink == "" {
+		return "", fmt.Errorf("download link not found with selector '%s'", selector.Selector)
+	}
+
+	return downloadLink, nil
 }
 
 // parseJSONResults processes a JSON API response with support for nested results.
@@ -263,7 +515,7 @@ func (m *Manager) parseJSONResults(body io.Reader, def *Definition) ([]SearchRes
 			processResult(m, childValue, nil, parentRaw, fields, &results)
 			return true
 		})
-		
+
 		return true
 	})
 	return results, nil
@@ -278,36 +530,34 @@ func processResult(m *Manager, resultValue gjson.Result, resultRaw, parentRaw ma
 			return true
 		})
 	}
-	
+
 	templateContext := map[string]interface{}{
 		"Result": resultRaw,
 		"Parent": parentRaw,
 	}
 
-	// This is the new, robust logic for handling fields.
 	var title string
-	if strings.Contains(fields.Title, "{{") {
-		title, _ = m.executeTemplate(fields.Title, templateContext)
+	if strings.Contains(fields.Title.Selector, "{{") {
+		title, _ = m.executeTemplate(fields.Title.Selector, templateContext)
 	} else {
-		title = resultValue.Get(fields.Title).String()
+		title = resultValue.Get(fields.Title.Selector).String()
 	}
 
 	var downloadURL string
-	if strings.Contains(fields.DownloadURL, "{{") {
-		downloadURL, _ = m.executeTemplate(fields.DownloadURL, templateContext)
+	if strings.Contains(fields.DownloadURL.Selector, "{{") {
+		downloadURL, _ = m.executeTemplate(fields.DownloadURL.Selector, templateContext)
 	} else {
-		downloadURL = resultValue.Get(fields.DownloadURL).String()
+		downloadURL = resultValue.Get(fields.DownloadURL.Selector).String()
 	}
 
-	size := resultValue.Get(fields.Size).Int()
+	size := resultValue.Get(fields.Size.Selector).Int()
 	if size == 0 {
-		size = m.parseSize(resultValue.Get(fields.Size).String())
+		size = m.parseSize(resultValue.Get(fields.Size.Selector).String())
 	}
-	
-	pubDateStr := resultValue.Get(fields.PublishDate).String()
+
+	pubDateStr := resultValue.Get(fields.PublishDate.Selector).String()
 	pubDate, _ := parseFuzzyDate(pubDateStr)
 
-	// Do not add results that don't have a title
 	if title == "" {
 		return
 	}
@@ -316,65 +566,18 @@ func processResult(m *Manager, resultValue gjson.Result, resultRaw, parentRaw ma
 		Title:       title,
 		DownloadURL: downloadURL,
 		Size:        size,
-		Seeders:     int(resultValue.Get(fields.Seeders).Int()),
-		Leechers:    int(resultValue.Get(fields.Leechers).Int()),
+		Seeders:     int(resultValue.Get(fields.Seeders.Selector).Int()),
+		Leechers:    int(resultValue.Get(fields.Leechers.Selector).Int()),
 		PublishDate: pubDate,
 	})
 }
 
-// parseHTMLResults processes an HTML page response using goquery
-func (m *Manager) parseHTMLResults(body io.Reader, def *Definition) ([]SearchResult, error) {
-	doc, err := goquery.NewDocumentFromReader(body)
-	if err != nil {
-		return nil, err
-	}
-	fields := def.Search.Results.Fields
-	var results []SearchResult
-
-	doc.Find(def.Search.Results.RowsSelector).Each(func(i int, s *goquery.Selection) {
-		var sr SearchResult
-		sr.Title = strings.TrimSpace(s.Find(fields.Title).Text())
-		sr.DownloadURL = m.absURL(def.Search.URL, m.extractAttr(s, fields.DownloadURL))
-		sr.Size = m.parseSize(s.Find(fields.Size).Text())
-
-		// FIX: Handle static seeders/leechers defined as numbers in the YAML
-		seeders, err := strconv.Atoi(fields.Seeders)
-		if err != nil {
-			seeders, _ = strconv.Atoi(s.Find(fields.Seeders).Text())
-		}
-		sr.Seeders = seeders
-
-		leechers, err := strconv.Atoi(fields.Leechers)
-		if err != nil {
-			leechers, _ = strconv.Atoi(s.Find(fields.Leechers).Text())
-		}
-		sr.Leechers = leechers
-		// END FIX
-
-		dateStr := m.extractAttr(s, fields.PublishDate)
-		if dateStr != "" {
-			pubDate, err := parseFuzzyDate(dateStr)
-			if err == nil {
-				sr.PublishDate = pubDate
-			}
-		}
-
-		if sr.Title != "" && sr.DownloadURL != "" {
-			results = append(results, sr)
-		}
-	})
-	return results, nil
-}
-
-// --- Helper Functions ---
-
 // executeTemplate now gracefully handles non-template strings.
 func (m *Manager) executeTemplate(tplStr string, data any) (string, error) {
-	// If it doesn't look like a template, just return the raw string.
 	if !strings.Contains(tplStr, "{{") {
 		return tplStr, nil
 	}
-	
+
 	var buf bytes.Buffer
 	tpl, err := template.New("").Parse(tplStr)
 	if err != nil {
@@ -384,15 +587,6 @@ func (m *Manager) executeTemplate(tplStr string, data any) (string, error) {
 		return "", err
 	}
 	return buf.String(), nil
-}
-
-func (m *Manager) extractAttr(s *goquery.Selection, field string) string {
-	parts := strings.Split(field, "@")
-	if len(parts) == 2 {
-		val, _ := s.Find(parts[0]).Attr(parts[1])
-		return val
-	}
-	return s.Find(field).Text()
 }
 
 func (m *Manager) absURL(base, path string) string {
@@ -432,15 +626,10 @@ func parseFuzzyDate(dateStr string) (time.Time, error) {
 	dateStr = strings.TrimSpace(dateStr)
 	now := time.Now()
 
-	// NEW: Handle Shana Project's specific format
 	if strings.Contains(dateStr, "a.m.") || strings.Contains(dateStr, "p.m.") {
-		// Clean up the string: remove periods, replace "a.m." with "AM"
 		cleanStr := strings.ReplaceAll(dateStr, ".", "")
 		cleanStr = strings.Replace(cleanStr, "am", "AM", 1)
 		cleanStr = strings.Replace(cleanStr, "pm", "PM", 1)
-		
-		// Define the layout Go uses to parse this format
-		// "Jan 2, 2006, 3:04 PM" corresponds to "MMM d, yyyy, h:mm AM/PM"
 		layout := "Jan 2, 2006, 3:04 PM"
 		if t, err := time.Parse(layout, cleanStr); err == nil {
 			return t, nil
@@ -460,7 +649,7 @@ func parseFuzzyDate(dateStr string) (time.Time, error) {
 	if matches := timeagoRegex.FindStringSubmatch(dateStr); len(matches) == 3 {
 		value, _ := strconv.Atoi(matches[1])
 		unit := matches[2]
-		
+
 		switch unit {
 		case "min":
 			return now.Add(-time.Duration(value) * time.Minute), nil
