@@ -28,7 +28,7 @@ The easiest way to get Scarf up and running is with Docker.
 
 1.  **Clone the repository (or download the files):**
     ```bash
-    git clone [https://github.com/your-username/scarf.git](https://github.com/your-username/scarf.git)
+    git clone [https://github.com/pixelotes/scarf.git](https://github.com/pixelotes/scarf.git)
     cd scarf
     ```
 
