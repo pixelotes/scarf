@@ -366,7 +366,7 @@ func (m *Manager) Search(indexerKey, query, category string) ([]SearchResult, er
 	case "json":
 		return m.parseJSONResults(resp.Body, def)
 	case "html":
-		return m.parseHTMLResults(resp.Body, def)
+		return m.parseHTMLResults(resp.Body, def, baseURL)
 	default:
 		return nil, fmt.Errorf("unsupported search type: '%s'", def.Search.Type)
 	}
@@ -392,7 +392,7 @@ func (m *Manager) extractAttr(s *goquery.Selection, selector Selector) string {
 }
 
 // parseHTMLResults processes an HTML page response using goquery, with support for two-step fetching.
-func (m *Manager) parseHTMLResults(body io.Reader, def *Definition) ([]SearchResult, error) {
+func (m *Manager) parseHTMLResults(body io.Reader, def *Definition, baseURL string) ([]SearchResult, error) {
 	doc, err := goquery.NewDocumentFromReader(body)
 	if err != nil {
 		return nil, err
@@ -418,7 +418,7 @@ func (m *Manager) parseHTMLResults(body io.Reader, def *Definition) ([]SearchRes
 		}
 
 		// Handle two-step fetching if required
-		detailsURL := m.absURL(def.Search.URL, m.extractAttr(s, fields.DetailsURL))
+		detailsURL := m.absURL(baseURL, m.extractAttr(s, fields.DetailsURL))
 		if detailsURL != "" && def.Search.Results.DownloadSelector != "" {
 			wg.Add(1)
 			go func(searchResult SearchResult, detailURL string) {
@@ -436,7 +436,7 @@ func (m *Manager) parseHTMLResults(body io.Reader, def *Definition) ([]SearchRes
 			}(sr, detailsURL)
 		} else {
 			// Single-step fetch
-			sr.DownloadURL = m.absURL(def.Search.URL, m.extractAttr(s, fields.DownloadURL))
+			sr.DownloadURL = m.absURL(baseURL, m.extractAttr(s, fields.DownloadURL))
 			if sr.Title != "" && sr.DownloadURL != "" {
 				results = append(results, sr)
 			}
@@ -602,6 +602,8 @@ func (m *Manager) absURL(base, path string) string {
 }
 
 func (m *Manager) parseSize(s string) int64 {
+	// Replace non-breaking space with a regular space
+	s = strings.ReplaceAll(s, "\u00A0", " ")
 	matches := sizeRegex.FindStringSubmatch(s)
 	if len(matches) < 4 {
 		return 0

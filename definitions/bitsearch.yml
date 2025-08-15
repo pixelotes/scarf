@@ -1,0 +1,48 @@
+key: "bitsearch"
+name: "BitSearch"
+description: "BitSearch (Solid Torrents) is a Public torrent meta-search engine"
+language: "en-US"
+schedule: "@every 1h"
+
+search:
+  type: "html"
+  url: >-
+    https://bitsearch.to/search?q={{.Query}}&sort=seeders&order=desc
+  params: {}
+
+  results:
+    rows_selector: "div.space-y-4 > div.bg-white > div.items-start"
+    # This selector is for the second step: finding the magnet link on the details page.
+    download_selector: "a[href^='magnet:?xt']@href"
+    fields:
+      title:
+        selector: "h3 > a"
+      # This tells the app where to go for the second step.
+      details_url:
+        selector: "h3 > a@href"
+      size:
+        selector: "div.space-y-2 > span:nth-child(2)"
+      seeders:
+        selector: "div.space-x-3 > span:nth-child(1)"
+      leechers:
+        selector: "div.space-x-3 > span:nth-child(2)"
+      publish_date:
+        selector: "div.space-y-2 > span:nth-child(3)"
+
+category_mappings:
+  - indexer_cat: "Anime"
+    torznab_cat: 5080
+  - indexer_cat: "Books"
+    torznab_cat: 7000
+  - indexer_cat: "Games"
+    torznab_cat: 4050
+  - indexer_cat: "Movies"
+    torznab_cat: 2000
+  - indexer_cat: "Music"
+    torznab_cat: 3000
+  - indexer_cat: "Softwares"
+    torznab_cat: 4000
+  - indexer_cat: "TV"
+    torznab_cat: 5000
+  - indexer_cat: "Other"
+    torznab_cat: 8000

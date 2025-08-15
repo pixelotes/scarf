@@ -7,46 +7,45 @@ schedule: "@every 1h"
 search:
   type: "html"
   url: >-
-    https://torrentgalaxy.info/torrents.php?search={{.Query}}&sort=id&order=desc{{if .Category}}&c{{.Category}}=1{{end}}
+    https://torrentgalaxy.one/get-posts/{{if .Query}}keywords:{{.Query}}{{end}}{{if .Category}}:category:{{.Category}}{{end}}
   params: {}
 
   results:
     rows_selector: "div.tgxtablerow"
     download_selector: "a[href^='magnet:?xt=']@href"
-
     fields:
       title:
         selector: "a[href^='/post-detail/']@title"
       size:
-        selector: "div.tgxtablerow > div:nth-child(8) > span"
+        selector: "div.tgxtablecell:nth-last-child(5) span"
       seeders:
-        selector: "div.tgxtablerow > div:nth-child(11) > span > font:nth-of-type(1)"
+        selector: "div.tgxtablecell:nth-last-child(2) span font:nth-of-type(1)"
       leechers:
-        selector: "div.tgxtablerow > div:nth-child(11) > span > font:nth-of-type(2)"
+        selector: "div.tgxtablecell:nth-last-child(2) span font:nth-of-type(2)"
       publish_date:
         selector: "div.tgxtablecell:nth-last-child(1)"
-        remove: "div.bighide" # Remove the unwanted inner table to get clean text
+        remove: "div.bighide"
       details_url:
         selector: "a[href^='/post-detail/']@href"
 
 category_mappings:
-  - indexer_cat: "3"
-    torznab_cat: 2000 # Movies
-  - indexer_cat: "1"
-    torznab_cat: 5000 # TV
-  - indexer_cat: "14"
-    torznab_cat: 5070 # Docus
-  - indexer_cat: "4"
-    torznab_cat: 4050 # Games
-  - indexer_cat: "5"
-    torznab_cat: 3000 # Music
-  - indexer_cat: "28"
-    torznab_cat: 5080 # Anime
-  - indexer_cat: "2"
-    torznab_cat: 4000 # Apps
-  - indexer_cat: "6"
-    torznab_cat: 7000 # Books
-  - indexer_cat: "27"
-    torznab_cat: 6000 # XXX
-  - indexer_cat: "29"
-    torznab_cat: 8000 # Other
+  - indexer_cat: "Movies"
+    torznab_cat: 2000
+  - indexer_cat: "TV"
+    torznab_cat: 5000
+  - indexer_cat: "Docus"
+    torznab_cat: 5070
+  - indexer_cat: "Games"
+    torznab_cat: 4050
+  - indexer_cat: "Music"
+    torznab_cat: 3000
+  - indexer_cat: "Anime"
+    torznab_cat: 5080
+  - indexer_cat: "Apps"
+    torznab_cat: 4000
+  - indexer_cat: "Books"
+    torznab_cat: 7000
+  - indexer_cat: "XXX"
+    torznab_cat: 6000
+  - indexer_cat: "Other"
+    torznab_cat: 8000

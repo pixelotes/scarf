@@ -122,10 +122,34 @@ func (h *APIHandler) Login(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"token": token})
 }
 
+// IndexerDetail for API response, including a map of categories for the UI.
+type IndexerDetail struct {
+	Name             string                    `json:"name"`
+	CategoryMappings []indexer.CategoryMapping `json:"category_mappings"`
+	Categories       map[int]string            `json:"categories"`
+}
+
 // ListIndexers returns a JSON list of available indexers for the UI.
 func (h *APIHandler) ListIndexers(w http.ResponseWriter, r *http.Request) {
+	indexers := h.Manager.GetAllIndexers()
+	response := make(map[string]IndexerDetail)
+
+	for key, def := range indexers {
+		cats := make(map[int]string)
+		for _, mapping := range def.CategoryMappings {
+			if stdCat, ok := indexer.StandardCategories[mapping.TorznabCategory]; ok {
+				cats[stdCat.ID] = stdCat.Name
+			}
+		}
+		response[key] = IndexerDetail{
+			Name:             def.Name,
+			CategoryMappings: def.CategoryMappings,
+			Categories:       cats,
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(h.Manager.GetAllIndexers())
+	json.NewEncoder(w).Encode(response)
 }
 
 // searchAll performs a concurrent search across all indexers.
