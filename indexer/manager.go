@@ -297,79 +297,94 @@ func (m *Manager) Search(indexerKey, query, category string) ([]SearchResult, er
 		Category string
 	}{query, def.UserConfig, indexerCategory} // Use the potentially mapped category
 
-	methodTpl := def.Search.Method
-	if methodTpl == "" {
-		methodTpl = "GET"
-	}
-	method, _ := m.executeTemplate(methodTpl, tplData)
-	method = strings.ToUpper(method)
-
-	baseURL, err := m.executeTemplate(def.Search.URL, tplData)
-	if err != nil {
-		return nil, fmt.Errorf("invalid URL template: %w", err)
-	}
-
-	var req *http.Request
-
-	if method == "POST" {
-		bodyTpl := def.Search.Body
-		bodyString, err := m.executeTemplate(bodyTpl, tplData)
+	var lastErr error
+	// Loop through each URL defined for the indexer
+	for _, urlTemplate := range def.Search.URLs {
+		baseURL, err := m.executeTemplate(urlTemplate, tplData)
 		if err != nil {
-			return nil, fmt.Errorf("invalid body template: %w", err)
+			lastErr = fmt.Errorf("invalid URL template '%s': %w", urlTemplate, err)
+			continue // Try the next URL
 		}
 
-		req, err = http.NewRequest("POST", baseURL, strings.NewReader(bodyString))
-		if err != nil {
-			return nil, err
+		methodTpl := def.Search.Method
+		if methodTpl == "" {
+			methodTpl = "GET"
 		}
+		method, _ := m.executeTemplate(methodTpl, tplData)
+		method = strings.ToUpper(method)
 
-		contentType := def.Search.ContentType
-		if contentType == "" {
-			contentType = "application/x-www-form-urlencoded"
-		}
-		req.Header.Set("Content-Type", contentType)
-	} else {
-		req, err = http.NewRequest("GET", baseURL, nil)
-		if err != nil {
-			return nil, err
-		}
+		var req *http.Request
 
-		q := req.URL.Query()
-		for key, valTpl := range def.Search.Params {
-			val, err := m.executeTemplate(valTpl, tplData)
+		if method == "POST" {
+			bodyTpl := def.Search.Body
+			bodyString, err := m.executeTemplate(bodyTpl, tplData)
 			if err != nil {
-				q.Set(key, valTpl)
-			} else {
-				q.Set(key, val)
+				lastErr = fmt.Errorf("invalid body template: %w", err)
+				continue
 			}
+
+			req, err = http.NewRequest("POST", baseURL, strings.NewReader(bodyString))
+			if err != nil {
+				lastErr = err
+				continue
+			}
+
+			contentType := def.Search.ContentType
+			if contentType == "" {
+				contentType = "application/x-www-form-urlencoded"
+			}
+			req.Header.Set("Content-Type", contentType)
+		} else { // Default to GET
+			req, err = http.NewRequest("GET", baseURL, nil)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+
+			q := req.URL.Query()
+			for key, valTpl := range def.Search.Params {
+				val, err := m.executeTemplate(valTpl, tplData)
+				if err != nil {
+					q.Set(key, valTpl)
+				} else {
+					q.Set(key, val)
+				}
+			}
+			req.URL.RawQuery = q.Encode()
 		}
-		req.URL.RawQuery = q.Encode()
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("search request failed for %s: %w", baseURL, err)
+			continue // Request failed, try the next URL
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			slog.Warn("Search failed with non-200 status",
+				"indexer", def.Name,
+				"url", baseURL,
+				"status", resp.Status,
+				"body", string(body),
+			)
+			lastErr = fmt.Errorf("search failed for %s, status: %s", baseURL, resp.Status)
+			continue // Non-200 status, try the next URL
+		}
+
+		// If we get here, the request was successful. Parse results and return.
+		switch def.Search.Type {
+		case "json":
+			return m.parseJSONResults(resp.Body, def)
+		case "html":
+			return m.parseHTMLResults(resp.Body, def, baseURL)
+		default:
+			return nil, fmt.Errorf("unsupported search type: '%s'", def.Search.Type)
+		}
 	}
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("search request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		slog.Warn("Search failed with non-200 status",
-			"indexer", def.Name,
-			"status", resp.Status,
-			"body", string(body),
-		)
-		return nil, fmt.Errorf("search failed, status: %s", resp.Status)
-	}
-
-	switch def.Search.Type {
-	case "json":
-		return m.parseJSONResults(resp.Body, def)
-	case "html":
-		return m.parseHTMLResults(resp.Body, def, baseURL)
-	default:
-		return nil, fmt.Errorf("unsupported search type: '%s'", def.Search.Type)
-	}
+	// If the loop completes without a successful return, it means all URLs failed.
+	return nil, fmt.Errorf("all search attempts failed for indexer '%s', last error: %w", def.Name, lastErr)
 }
 
 // HELPER FUNCTION: extractText safely extracts text from a selection, handling optional removals.

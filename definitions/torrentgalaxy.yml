@@ -6,8 +6,10 @@ schedule: "@every 1h"
 
 search:
   type: "html"
-  url: >-
-    https://torrentgalaxy.one/get-posts/{{if .Query}}keywords:{{.Query}}{{end}}{{if .Category}}:category:{{.Category}}{{end}}
+  urls:
+    - "https://torrentgalaxy.one/get-posts/{{if .Query}}keywords:{{.Query}}{{end}}{{if .Category}}:category:{{.Category}}{{end}}"
+    - "https://torrentgalaxy.info/get-posts/{{if .Query}}keywords:{{.Query}}{{end}}{{if .Category}}:category:{{.Category}}{{end}}"
+    - "https://torrentgalaxy.space/get-posts/{{if .Query}}keywords:{{.Query}}{{end}}{{if .Category}}:category:{{.Category}}{{end}}"
   params: {}
 
   results:

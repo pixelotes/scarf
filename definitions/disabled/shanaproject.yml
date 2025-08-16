@@ -6,7 +6,8 @@ schedule: "@hourly"
 
 search:
   type: "html"
-  url: "https://www.shanaproject.com/search/"
+  urls: 
+    - "https://www.shanaproject.com/search/"
 
   params:
     title: "{{.Query}}"

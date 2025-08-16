@@ -7,8 +7,8 @@ schedule: "@hourly"
 search:
   type: "json"
   
-  url: >-
-    https://bangumi.moe/{{if .Query}}api/v2/torrent/search{{else}}api/torrent/latest{{end}}
+  urls:
+    - "https://bangumi.moe/{{if .Query}}api/v2/torrent/search{{else}}api/torrent/latest{{end}}"
   
   method: "{{if .Query}}post{{else}}get{{end}}"
   content_type: "application/json"

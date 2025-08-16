@@ -6,8 +6,8 @@ schedule: "@every 1h"
 
 search:
   type: "html"
-  url: >-
-    https://x1337x.eu/search/{{.Query}}/1/
+  urls:
+    - "https://x1337x.eu/search/{{.Query}}/1/"
   params: {}
 
   results:

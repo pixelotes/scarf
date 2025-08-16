@@ -6,8 +6,8 @@ schedule: "@every 1h"
 
 search:
   type: "html"
-  url: >-
-    https://bitsearch.to/search?q={{.Query}}&sort=seeders&order=desc
+  urls:
+    - "https://bitsearch.to/search?q={{.Query}}&sort=seeders&order=desc"
   params: {}
 
   results:

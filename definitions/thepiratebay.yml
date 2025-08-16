@@ -6,8 +6,8 @@ schedule: "@every 1h"
 
 search:
   type: "json"
-  url: >-
-    {{if .Query}}https://apibay.org/q.php?q={{.Query}}&cat={{.Category}}{{else}}https://apibay.org/precompiled/data_top100_recent.json{{end}}
+  urls:
+    - "{{if .Query}}https://apibay.org/q.php?q={{.Query}}&cat={{.Category}}{{else}}https://apibay.org/precompiled/data_top100_recent.json{{end}}"
 
   results:
     path: ""

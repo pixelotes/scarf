@@ -6,7 +6,8 @@ schedule: "@every 1h"
 
 search:
   type: "html"
-  url: "https://isohunt.ch/torrent/" # Corrected URL path
+  urls: 
+    - "https://isohunt.ch/torrent/" # Corrected URL path
 
   params:
     ihq: "{{ .Query }}"

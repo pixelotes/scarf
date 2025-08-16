@@ -6,8 +6,8 @@ schedule: "@every 1h"
 
 search:
   type: "json"
-  url: >-
-    https://therarbg.to/get-posts/order:-a{{if .Category}}:category:{{.Category}}{{end}}{{if .Query}}:keywords:{{.Query}}{{else}}:time:10D{{end}}:paginate_by:100:format:json/
+  urls:
+    - "https://therarbg.to/get-posts/order:-a{{if .Category}}:category:{{.Category}}{{end}}{{if .Query}}:keywords:{{.Query}}{{else}}:time:10D{{end}}:paginate_by:100:format:json/"
 
   results:
     path: "results"

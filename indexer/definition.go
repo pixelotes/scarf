@@ -32,7 +32,7 @@ type FieldDefinition struct {
 // SearchDefinition defines how to query a tracker's API
 type SearchDefinition struct {
 	Type        string            `yaml:"type"`
-	URL         string            `yaml:"url"`
+	URLs        []string          `yaml:"urls"` // Cambiado de 'url' a 'urls' y de string a []string
 	Method      string            `yaml:"method"`
 	Body        string            `yaml:"body"`
 	ContentType string            `yaml:"content_type"`

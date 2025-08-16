@@ -6,7 +6,8 @@ schedule: "@every 2h"
 
 search:
   type: "json"
-  url: "https://yts.mx/api/v2/list_movies.json"
+  urls:
+    - "https://yts.mx/api/v2/list_movies.json"
   
   params:
     query_term: "{{.Query}}"
