@@ -1,0 +1,54 @@
+key: "isohunt2"
+name: "Isohunt2"
+description: "Isohunt2 is a Public torrent search engine for MOVIES / TV / GENERAL"
+language: "en-US"
+schedule: "@every 1h"
+
+search:
+  type: "html"
+  url: "https://isohunt.ch/torrent/" # Corrected URL path
+
+  params:
+    ihq: "{{ .Query }}"
+    iht: "{{ .Category }}"
+    age: "0"
+    Torrent_sort: "created_at"
+
+  results:
+    rows_selector: "table > tbody > tr"
+    # The download link is on the details page, so we tell Scarf where to find it.
+    download_selector: "a.btn-magnet@href" 
+    fields:
+      title:
+        selector: "td.title-row > a > span"
+      # This tells Scarf to follow this link to find the download button
+      details_url:
+        selector: "td.title-row > a@href" 
+      size:
+        selector: "td.size-row"
+      seeders:
+        selector: "td.sn"
+      leechers:
+        selector: "td.ln" # Added selector for leechers
+      publish_date:
+        selector: "td.date-row"
+
+category_mappings:
+  - indexer_cat: "1"
+    torznab_cat: 5080 # Anime
+  - indexer_cat: "2"
+    torznab_cat: 4000 # PC/0day -> PC
+  - indexer_cat: "3"
+    torznab_cat: 4050 # PC/Games
+  - indexer_cat: "4"
+    torznab_cat: 6000 # XXX
+  - indexer_cat: "5"
+    torznab_cat: 2000 # Movies
+  - indexer_cat: "6"
+    torznab_cat: 3000 # Audio
+  - indexer_cat: "7"
+    torznab_cat: 8000 # Other
+  - indexer_cat: "8"
+    torznab_cat: 5000 # TV
+  - indexer_cat: "9"
+    torznab_cat: 7000 # Books
