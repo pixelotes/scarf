@@ -137,7 +137,9 @@ category_mappings:
 
 For more complex sites, you can use the details_url and download_selector fields to perform a two-step search, where Scarf first finds a details page and then extracts the magnet link from that page.
 
-## Roadmap
+
+## Roadmap
+
 - [X] Create a simple web ui
 - [X] Add authentication
 - [X] Add Docker support
