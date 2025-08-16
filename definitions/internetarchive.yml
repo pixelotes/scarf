@@ -1,0 +1,50 @@
+key: "internetarchive"
+name: "Internet Archive"
+description: "Internet Archive is a non-profit digital library offering free universal access to books, movies & music."
+language: "en-US"
+schedule: "@every 6h" # Es una API, no es necesario consultarla con tanta frecuencia.
+
+search:
+  type: "json"
+  # La URL está cuidadosamente construida para replicar la lógica de búsqueda de Jackett.
+  # Busca el texto del usuario (.Query) Y requiere que el formato sea "Archive BitTorrent".
+  # También solicita los campos específicos que necesitamos (fl[]), ordena por fecha de publicación y pide salida en JSON.
+  urls:
+    - >-
+      https://archive.org/advancedsearch.php?q=title:({{.Query}})%20AND%20format:("Archive BitTorrent")&fl[]=identifier&fl[]=title&fl[]=mediatype&fl[]=item_size&fl[]=downloads&fl[]=btih&fl[]=publicdate&sort[]=-publicdate&rows=100&output=json
+
+  results:
+    # La ruta a la lista de resultados en la respuesta JSON
+    path: "response.docs"
+    fields:
+      title:
+        selector: "title"
+      # Construimos el magnet link directamente usando el hash (btih) y el título.
+      download_url:
+        selector: "magnet:?xt=urn:btih:{{.Result.btih}}&dn={{.Result.title}}"
+      size:
+        selector: "item_size"
+      # Internet Archive no proporciona seeders/leechers, así que ponemos 1 por defecto para compatibilidad.
+      seeders:
+        selector: "1"
+      leechers:
+        selector: "1"
+      publish_date:
+        selector: "publicdate"
+
+# Mapeo de las categorías de Internet Archive a las estándar de Torznab.
+category_mappings:
+  - indexer_cat: "audio"
+    torznab_cat: 3000
+  - indexer_cat: "etree"
+    torznab_cat: 3000 # Audio
+  - indexer_cat: "movies"
+    torznab_cat: 2000
+  - indexer_cat: "texts"
+    torznab_cat: 7000 # Books
+  - indexer_cat: "software"
+    torznab_cat: 4000 # PC
+  - indexer_cat: "image"
+    torznab_cat: 8000 # Other
+  - indexer_cat: "data"
+    torznab_cat: 8000 # Other

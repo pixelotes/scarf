@@ -21,11 +21,11 @@ search:
       details_url:
         selector: "h3 > a@href"
       size:
-        selector: "div.space-y-2 > span:nth-child(2)"
+        selector: "div.flex.flex-wrap > span:nth-child(2)  i.fas.fa-download ~ span"
       seeders:
-        selector: "div.space-x-3 > span:nth-child(1)"
+        selector: " div.flex.flex-wrap  span.text-green-600 > span:nth-child(2)"
       leechers:
-        selector: "div.space-x-3 > span:nth-child(2)"
+        selector: " div.flex.flex-wrap  span.text-red-600 > span:nth-child(2)"
       publish_date:
         selector: "div.space-y-2 > span:nth-child(3)"
 
