@@ -99,18 +99,20 @@ The URL will look something like this: `http://your-scarf-address:8080/torznab/a
 
 Scarf's real power comes from its YAML-based definition files. You can find them in the `definitions` directory. Each file defines how to search a specific torrent site.
 
-### Example Definition (`torrentgalaxy.yml`)
+### Example Definition (`exampletracker.yml`)
 
 ```yaml
-key: "torrentgalaxy"
-name: "TorrentGalaxy"
-description: "TorrentGalaxy is a Public site for MOVIES / TV / GENERAL"
+key: "exampletracker"
+name: "ExampleTracker"
+description: "ExampleTracker is a Public site for MOVIES / TV / GENERAL"
 language: "en-US"
 schedule: "@every 1h"
 
 search:
   type: "html"
-  url: "[https://torrentgalaxy.one/get-posts/](https://torrentgalaxy.one/get-posts/){{if .Query}}keywords:{{.Query}}{{end}}"
+  urls:
+    - "[https://example-tracker.one/get-posts/](https://example-tracker.one/get-posts/){{if .Query}}keywords:{{.Query}}{{end}}"
+    - "[https://example-tracker.info/get-posts/](https://example-tracker.one/get-posts/){{if .Query}}keywords:{{.Query}}{{end}}"
   results:
     rows_selector: "div.tgxtablerow"
     download_selector: "a[href^='magnet:?xt=']@href"
@@ -143,9 +145,9 @@ For more complex sites, you can use the details_url and download_selector fields
 - [X] Add support for api-based trackers
 - [X] Add support for simple html scraping
 - [X] Add support for multi-step html scraping (for links in details page)
-- [ ] Add support for direct torrent links in addition to magnets
+- [X] Add multi-domain support for trackers
 - [ ] Add specific search modes (tv, movie, etc.)
-- [ ] Add multi-domain support for trackers
 - [ ] Add support for trackers with user / password authentication
+- [ ] Add support for direct torrent links in addition to magnets
 - [ ] Add support for CloudSolvarr
 - [ ] Direct support for Jackett tracker definitions
