@@ -1,6 +1,8 @@
 key: "shanaproject"
 name: "Shana Project"
 description: "Shana Project is a Public torrent site for ANIME"
+type: "public"
+enabled: true
 language: "en-US"
 schedule: "@hourly"
 

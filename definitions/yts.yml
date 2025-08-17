@@ -1,6 +1,8 @@
 key: "yts"
 name: "YTS"
 description: "YTS is a Public torrent site specialising in HD movies of small size"
+type: "public"
+enabled: true
 language: "en-US"
 schedule: "@every 2h"
 

@@ -50,6 +50,10 @@ type SearchDefinition struct {
 type Definition struct {
 	Key              string            `yaml:"key" json:"-"`
 	Name             string            `yaml:"name" json:"name"`
+	Type             string            `yaml:"type" json:"type"`
+	Enabled          bool              `yaml:"enabled" json:"enabled"`
+	Username         string            `yaml:"username,omitempty" json:"-"`
+	Password         string            `yaml:"password,omitempty" json:"-"`
 	Description      string            `yaml:"description" json:"-"`
 	Language         string            `yaml:"language" json:"-"`
 	Schedule         string            `yaml:"schedule" json:"-"`

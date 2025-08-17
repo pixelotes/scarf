@@ -1,15 +1,15 @@
 key: "bitsearch"
 name: "BitSearch"
 description: "BitSearch (Solid Torrents) is a Public torrent meta-search engine"
+type: "public"
+enabled: true
 language: "en-US"
 schedule: "@every 1h"
-
 search:
   type: "html"
   urls:
     - "https://bitsearch.to/search?q={{.Query}}&sort=seeders&order=desc"
   params: {}
-
   results:
     rows_selector: "div.space-y-4 > div.bg-white > div.items-start"
     # This selector is for the second step: finding the magnet link on the details page.
@@ -28,7 +28,6 @@ search:
         selector: " div.flex.flex-wrap  span.text-red-600 > span:nth-child(2)"
       publish_date:
         selector: "div.space-y-2 > span:nth-child(3)"
-
 category_mappings:
   - indexer_cat: "Anime"
     torznab_cat: 5080

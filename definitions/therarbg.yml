@@ -1,6 +1,8 @@
 key: "therarbg"
 name: "TheRARBG"
 description: "A Public site inspired by RARBG.to for MOVIES / TV / GENERAL"
+type: "public"
+enabled: true
 language: "en-US"
 schedule: "@every 1h"
 

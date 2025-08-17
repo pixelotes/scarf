@@ -147,6 +147,7 @@ func main() {
 		r.Get("/api/v1/search", apiHandler.WebSearch)
 		r.Get("/api/v1/test_indexer", apiHandler.TestIndexer)
 		r.Get("/api/v1/flexget_key", apiHandler.GetFlexgetAPIKey)
+		r.Post("/api/v1/indexer/toggle", apiHandler.ToggleIndexer)
 		r.Get("/api/v1/logs", logger.WebSocketHandler)
 	})
 
