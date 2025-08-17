@@ -1,6 +1,8 @@
 key: "isohunt2"
 name: "Isohunt2"
 description: "Isohunt2 is a Public torrent search engine for MOVIES / TV / GENERAL"
+type: "public"
+enabled: false
 language: "en-US"
 schedule: "@every 1h"
 

@@ -54,10 +54,78 @@
         #log-container { height: 60vh; overflow-y: scroll; background: #111; padding: 1rem; font-family: "Courier New", Courier, monospace; font-size: 0.9rem; white-space: pre-wrap; }
         
         .status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
-        .status-card { background: var(--header-bg); padding: 1rem; border-radius: 4px; }
+        .status-card { background: var(--header-bg); padding: 1rem; border-radius: 4px; position: relative; }
         .status-card-actions { margin-top: 1rem; display: flex; gap: 0.5rem; }
         .status-card-actions button { font-size: 0.8rem; padding: 0.5rem; }
         .flexget-url { margin-top: 1rem; }
+        .tracker-type-tag {
+            background-color: var(--primary-color);
+            padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; text-transform: capitalize;
+        }
+        /* The switch - the box around the slider */
+        .switch {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            display: inline-block;
+            width: 34px;
+            height: 20px;
+        }
+
+        /* Hide default HTML checkbox */
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        /* The slider */
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            -webkit-transition: .4s;
+            transition: .4s;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 12px;
+            width: 12px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            -webkit-transition: .4s;
+            transition: .4s;
+        }
+
+        input:checked + .slider {
+            background-color: var(--primary-color);
+        }
+
+        input:focus + .slider {
+            box-shadow: 0 0 1px var(--primary-color);
+        }
+
+        input:checked + .slider:before {
+            -webkit-transform: translateX(14px);
+            -ms-transform: translateX(14px);
+            transform: translateX(14px);
+        }
+
+        /* Rounded sliders */
+        .slider.round {
+            border-radius: 20px;
+        }
+
+        .slider.round:before {
+            border-radius: 50%;
+        }
     </style>
 </head>
 <body>
@@ -114,7 +182,15 @@
 
         <div id="status-page" class="page">
             <h2>Indexer Status</h2>
-            <button id="test-all-btn">Test All Indexers</button>
+            <div style="margin-bottom: 1rem; display: flex; gap: 1rem;">
+                <button id="test-all-btn">Test All Indexers</button>
+                <select id="type-filter">
+                    <option value="all">All Types</option>
+                    <option value="public">Public</option>
+                    <option value="private">Private</option>
+                    <option value="semiprivate">Semiprivate</option>
+                </select>
+            </div>
             <div id="status-grid" class="status-grid"></div>
             <div class="flexget-url">
                 <h3>Flexget URL (for 'all' indexers)</h3>
@@ -141,6 +217,8 @@
                 key: 'Seeders',
                 direction: 'desc'
             };
+            let tooltipTimeout;
+
 
             // --- AUTHENTICATION ---
             loginForm.addEventListener('submit', async (e) => {
@@ -214,6 +292,7 @@
                 loadIndexersAndCategories();
                 loadIndexerStatus();
                 setupLogViewer();
+                document.getElementById('type-filter').addEventListener('change', loadIndexerStatus);
             }
             
             // --- EVENT HANDLERS & API CALLERS ---
@@ -257,10 +336,12 @@
                 const indexers = await response.json();
                 indexerSelect.innerHTML = '<option value="all">All Indexers</option>';
                 for (const key in indexers) {
-                    const option = document.createElement('option');
-                    option.value = key;
-                    option.textContent = indexers[key].name;
-                    indexerSelect.appendChild(option);
+                    if (indexers[key].enabled) {
+                        const option = document.createElement('option');
+                        option.value = key;
+                        option.textContent = indexers[key].name;
+                        indexerSelect.appendChild(option);
+                    }
                 }
                 updateCategoryDropdown();
                 indexerSelect.addEventListener('change', updateCategoryDropdown);
@@ -278,13 +359,15 @@
                 let categories = {};
                 if (selectedIndexer === 'all') {
                     Object.values(indexers).forEach(idx => {
-                        for(const id in idx.categories) {
-                            if (!Object.values(categories).includes(idx.categories[id])) {
-                                categories[id] = idx.categories[id];
+                        if (idx.enabled) {
+                            for(const id in idx.categories) {
+                                if (!Object.values(categories).includes(idx.categories[id])) {
+                                    categories[id] = idx.categories[id];
+                                }
                             }
                         }
                     });
-                } else if (indexers[selectedIndexer]) {
+                } else if (indexers[selectedIndexer] && indexers[selectedIndexer].enabled) {
                     categories = indexers[selectedIndexer].categories;
                 }
                 
@@ -308,12 +391,24 @@
                 const apiKey = flexgetData.key;
                 
                 document.getElementById('flexget-url-input').value = `${window.location.origin}/torznab/all?apikey=${apiKey}`;
+                
+                const filter = document.getElementById('type-filter').value;
 
                 for (const key in indexers) {
+                    const indexer = indexers[key];
+                    if (filter !== 'all' && indexer.type !== filter) {
+                        continue;
+                    }
                     const card = document.createElement('div');
                     card.className = 'status-card';
+                    card.setAttribute('data-description', indexer.description);
                     card.innerHTML = `
-                        <h3>${indexers[key].name}</h3>
+                        <label class="switch">
+                            <input type="checkbox" class="enable-switch" data-key="${key}" ${indexer.enabled ? 'checked' : ''}>
+                            <span class="slider round"></span>
+                        </label>
+                        <h3>${indexer.name}</h3>
+                        <span class="tracker-type-tag">${indexer.type}</span>
                         <p>Status: <span class="status-indicator status-unknown" id="status-${key}"></span><span id="status-text-${key}">Unknown</span></p>
                         <div class="status-card-actions">
                             <button class="test-btn" data-key="${key}">Test</button>
@@ -325,9 +420,28 @@
                     statusGrid.appendChild(card);
                 }
 
+                statusGrid.addEventListener('mouseover', (e) => {
+                    const card = e.target.closest('.status-card');
+                    if (card && card.dataset.description) {
+                        clearTimeout(tooltipTimeout);
+                        tooltipTimeout = setTimeout(() => {
+                            card.title = card.dataset.description;
+                        }, 2000);
+                    }
+                });
+
+                statusGrid.addEventListener('mouseout', (e) => {
+                    const card = e.target.closest('.status-card');
+                    if (card) {
+                        clearTimeout(tooltipTimeout);
+                        card.title = '';
+                    }
+                });
+
                 statusGrid.addEventListener('click', async (e) => {
                     const testButton = e.target.closest('.test-btn');
                     const copyButton = e.target.closest('.copy-btn');
+                    const switchInput = e.target.closest('.enable-switch');
 
                     if (testButton) {
                         const key = testButton.dataset.key;
@@ -347,6 +461,27 @@
                             copyButton.textContent = 'Copied!';
                             setTimeout(() => { copyButton.innerHTML = originalText; }, 2000);
                         });
+                    }
+                });
+
+                statusGrid.addEventListener('change', async (e) => {
+                    const switchInput = e.target.closest('.enable-switch');
+                    if (switchInput) {
+                        const key = switchInput.dataset.key;
+                        const enabled = switchInput.checked;
+                        try {
+                            const response = await fetchWithAuth('/api/v1/indexer/toggle', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ key, enabled })
+                            });
+                            if (!response.ok) throw new Error('Failed to toggle indexer');
+                            loadIndexersAndCategories(); // Reload indexers in the search dropdown
+                        } catch (error) {
+                            console.error(error);
+                            // Revert the switch on error
+                            switchInput.checked = !enabled;
+                        }
                     }
                 });
 

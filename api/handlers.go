@@ -67,10 +67,19 @@ func (h *APIHandler) getRateLimiter(indexerKey string) *rate.Limiter {
 func (h *APIHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	allIndexers := h.Manager.GetAllIndexers()
 	healthyIndexers := 0
-	totalIndexers := len(allIndexers)
+	totalIndexers := 0
+
+	for _, def := range allIndexers {
+		if def.Enabled {
+			totalIndexers++
+		}
+	}
 
 	count := 0
-	for key := range allIndexers {
+	for key, def := range allIndexers {
+		if !def.Enabled {
+			continue
+		}
 		if count >= 3 {
 			break
 		}
@@ -125,6 +134,9 @@ func (h *APIHandler) Login(w http.ResponseWriter, r *http.Request) {
 // IndexerDetail for API response, including a map of categories for the UI.
 type IndexerDetail struct {
 	Name             string                    `json:"name"`
+	Type             string                    `json:"type"`
+	Description      string                    `json:"description"`
+	Enabled          bool                      `json:"enabled"`
 	CategoryMappings []indexer.CategoryMapping `json:"category_mappings"`
 	Categories       map[int]string            `json:"categories"`
 }
@@ -143,6 +155,9 @@ func (h *APIHandler) ListIndexers(w http.ResponseWriter, r *http.Request) {
 		}
 		response[key] = IndexerDetail{
 			Name:             def.Name,
+			Type:             def.Type,
+			Description:      def.Description,
+			Enabled:          def.Enabled,
 			CategoryMappings: def.CategoryMappings,
 			Categories:       cats,
 		}
@@ -152,6 +167,29 @@ func (h *APIHandler) ListIndexers(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+// ToggleIndexerPayload is the struct for the toggle request
+type ToggleIndexerPayload struct {
+	Key     string `json:"key"`
+	Enabled bool   `json:"enabled"`
+}
+
+// ToggleIndexer handles enabling or disabling an indexer
+func (h *APIHandler) ToggleIndexer(w http.ResponseWriter, r *http.Request) {
+	var payload ToggleIndexerPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.Manager.ToggleIndexerEnabled(payload.Key, payload.Enabled); err != nil {
+		slog.Error("Failed to toggle indexer", "key", payload.Key, "error", err)
+		http.Error(w, "Failed to update indexer", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
 // searchAll performs a concurrent search across all indexers.
 func (h *APIHandler) searchAll(query, category string) ([]indexer.SearchResult, error) {
 	slog.Info("Starting aggregate search", "query", query, "category", category)
@@ -159,7 +197,10 @@ func (h *APIHandler) searchAll(query, category string) ([]indexer.SearchResult, 
 	var wg sync.WaitGroup
 	resultsChan := make(chan []indexer.SearchResult, len(allIndexers))
 
-	for key := range allIndexers {
+	for key, def := range allIndexers {
+		if !def.Enabled {
+			continue
+		}
 		wg.Add(1)
 		go func(indexerKey string) {
 			defer wg.Done()
@@ -294,7 +335,6 @@ func (h *APIHandler) TorznabAPI(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleCaps returns the capabilities of an indexer
 // handleCaps returns the capabilities of an indexer
 func (h *APIHandler) handleCaps(w http.ResponseWriter, r *http.Request, indexerKey string) {
 	def, ok := h.Manager.GetIndexer(indexerKey)

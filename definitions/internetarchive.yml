@@ -1,9 +1,10 @@
 key: "internetarchive"
 name: "Internet Archive"
 description: "Internet Archive is a non-profit digital library offering free universal access to books, movies & music."
+type: "public"
+enabled: true
 language: "en-US"
 schedule: "@every 6h" # Es una API, no es necesario consultarla con tanta frecuencia.
-
 search:
   type: "json"
   # La URL está cuidadosamente construida para replicar la lógica de búsqueda de Jackett.
@@ -12,7 +13,6 @@ search:
   urls:
     - >-
       https://archive.org/advancedsearch.php?q=title:({{.Query}})%20AND%20format:("Archive BitTorrent")&fl[]=identifier&fl[]=title&fl[]=mediatype&fl[]=item_size&fl[]=downloads&fl[]=btih&fl[]=publicdate&sort[]=-publicdate&rows=100&output=json
-
   results:
     # La ruta a la lista de resultados en la respuesta JSON
     path: "response.docs"
@@ -31,7 +31,6 @@ search:
         selector: "1"
       publish_date:
         selector: "publicdate"
-
 # Mapeo de las categorías de Internet Archive a las estándar de Torznab.
 category_mappings:
   - indexer_cat: "audio"

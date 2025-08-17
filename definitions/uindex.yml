@@ -1,6 +1,8 @@
 key: "uindex"
 name: "Uindex"
 description: "Uindex is a Public Torrent Tracker for MOVIES / TV / MUSIC / GENERAL"
+type: "public"
+enabled: true
 language: "en-US"
 schedule: "@every 1h"
 

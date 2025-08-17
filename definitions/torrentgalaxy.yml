@@ -1,6 +1,8 @@
 key: "torrentgalaxy"
 name: "TorrentGalaxy"
 description: "TorrentGalaxy is a Public site for MOVIES / TV / GENERAL"
+type: "public"
+enabled: true
 language: "en-US"
 schedule: "@every 1h"
 

@@ -1,13 +1,14 @@
 key: aniRena
 name: AniRena
-description: AniRena is a Public torrent tracker for the latest anime and Japanese
-  related torrents
+description: AniRena is a Public torrent tracker for the latest anime and Japanese related torrents
+type: "public"
+enabled: true
 language: en-US
 schedule: '@every 1h'
 search:
   type: html
   urls:
-  - https://www.anirena.com/
+    - https://www.anirena.com/
   params: {}
   results:
     rows_selector: table tbody tr:has(td.torrents_small_type_data1)
@@ -27,25 +28,25 @@ search:
       publish_date:
         selector: ''
 category_mappings:
-- indexer_cat: '1'
-  torznab_cat: 5080
-- indexer_cat: '2'
-  torznab_cat: 5080
-- indexer_cat: '3'
-  torznab_cat: 5080
-- indexer_cat: '4'
-  torznab_cat: 5080
-- indexer_cat: '9'
-  torznab_cat: 5080
-- indexer_cat: '10'
-  torznab_cat: 5080
-- indexer_cat: '5'
-  torznab_cat: 4020
-- indexer_cat: '6'
-  torznab_cat: 4000
-- indexer_cat: '7'
-  torznab_cat: 7000
-- indexer_cat: '8'
-  torznab_cat: 3000
-- indexer_cat: '11'
-  torznab_cat: 8000
+  - indexer_cat: '1'
+    torznab_cat: 5080
+  - indexer_cat: '2'
+    torznab_cat: 5080
+  - indexer_cat: '3'
+    torznab_cat: 5080
+  - indexer_cat: '4'
+    torznab_cat: 5080
+  - indexer_cat: '9'
+    torznab_cat: 5080
+  - indexer_cat: '10'
+    torznab_cat: 5080
+  - indexer_cat: '5'
+    torznab_cat: 4020
+  - indexer_cat: '6'
+    torznab_cat: 4000
+  - indexer_cat: '7'
+    torznab_cat: 7000
+  - indexer_cat: '8'
+    torznab_cat: 3000
+  - indexer_cat: '11'
+    torznab_cat: 8000

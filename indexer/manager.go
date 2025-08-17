@@ -112,19 +112,20 @@ func (m *Manager) loadDefinitions() error {
 	m.Indexers = make(map[string]*Definition)
 	m.authClients = make(map[string]*http.Client)
 
-	files, err := os.ReadDir(m.definitionsPath)
-	if err != nil {
-		return fmt.Errorf("could not read definitions directory: %w", err)
-	}
+	err := filepath.Walk(m.definitionsPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && (strings.HasSuffix(info.Name(), ".yml") || strings.HasSuffix(info.Name(), ".yaml")) {
+			if err := m.loadDefinition(path); err != nil {
+				slog.Warn("Skipping definition file due to error", "file", info.Name(), "error", err)
+			}
+		}
+		return nil
+	})
 
-	for _, file := range files {
-		if !strings.HasSuffix(file.Name(), ".yml") && !strings.HasSuffix(file.Name(), ".yaml") {
-			continue
-		}
-		path := filepath.Join(m.definitionsPath, file.Name())
-		if err := m.loadDefinition(path); err != nil {
-			slog.Warn("Skipping definition file due to error", "file", file.Name(), "error", err)
-		}
+	if err != nil {
+		return fmt.Errorf("could not walk definitions path: %w", err)
 	}
 
 	if m.reloadCallback != nil {
@@ -152,6 +153,11 @@ func (m *Manager) loadDefinition(path string) error {
 		if val, ok := os.LookupEnv(envKey); ok {
 			def.UserConfig[key] = val
 		}
+	}
+
+	if _, exists := m.Indexers[def.Key]; exists {
+		slog.Warn("Duplicate indexer key found, skipping", "key", def.Key, "file", path)
+		return nil
 	}
 
 	m.Indexers[def.Key] = &def
@@ -205,6 +211,76 @@ func (m *Manager) SetReloadCallback(cb func()) {
 // Close stops the file watcher
 func (m *Manager) Close() error {
 	return m.watcher.Close()
+}
+
+// ToggleIndexerEnabled updates the enabled status of an indexer and saves it to the definition file.
+func (m *Manager) ToggleIndexerEnabled(key string, enabled bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	def, ok := m.Indexers[key]
+	if !ok {
+		return fmt.Errorf("indexer not found: %s", key)
+	}
+
+	// Find the file path for the given indexer key
+	filePath := filepath.Join(m.definitionsPath, key+".yml")
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		filePath = filepath.Join(m.definitionsPath, key+".yaml")
+		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+			// Check in disabled directory
+			filePath = filepath.Join(m.definitionsPath, "disabled", key+".yml")
+			if _, err := os.Stat(filePath); os.IsNotExist(err) {
+				filePath = filepath.Join(m.definitionsPath, "disabled", key+".yaml")
+				if _, err := os.Stat(filePath); os.IsNotExist(err) {
+					return fmt.Errorf("definition file for %s not found", key)
+				}
+			}
+		}
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("could not read definition file: %w", err)
+	}
+
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err != nil {
+		return fmt.Errorf("could not unmarshal yaml: %w", err)
+	}
+
+	// Traverse the YAML node tree to find and update the 'enabled' field
+	if node.Kind == yaml.DocumentNode {
+		for _, content := range node.Content {
+			if content.Kind == yaml.MappingNode {
+				for i := 0; i < len(content.Content); i += 2 {
+					if content.Content[i].Value == "enabled" {
+						content.Content[i+1].SetString(strconv.FormatBool(enabled))
+						content.Content[i+1].Tag = "!!bool" // Ensure it's saved as a boolean
+						break
+					}
+				}
+			}
+		}
+	}
+
+	var buf bytes.Buffer
+	encoder := yaml.NewEncoder(&buf)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(&node); err != nil {
+		return fmt.Errorf("could not marshal yaml: %w", err)
+	}
+
+	// Temporarily remove the watcher to avoid a reload loop
+	m.watcher.Remove(m.definitionsPath)
+	defer m.watcher.Add(m.definitionsPath)
+
+	if err := os.WriteFile(filePath, buf.Bytes(), 0644); err != nil {
+		return fmt.Errorf("could not write definition file: %w", err)
+	}
+
+	def.Enabled = enabled
+	return nil
 }
 
 // authenticate handles the login process for a tracker
@@ -269,6 +345,10 @@ func (m *Manager) Search(indexerKey, query, category string) ([]SearchResult, er
 	def, ok := m.GetIndexer(indexerKey)
 	if !ok {
 		return nil, fmt.Errorf("indexer '%s' not found", indexerKey)
+	}
+
+	if !def.Enabled {
+		return nil, fmt.Errorf("indexer '%s' is disabled", indexerKey)
 	}
 
 	slog.Debug("Starting search", "indexer", def.Name, "query", query, "category", category)
