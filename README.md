@@ -148,8 +148,9 @@ For more complex sites, you can use the details_url and download_selector fields
 - [X] Add support for simple html scraping
 - [X] Add support for multi-step html scraping (for links in details page)
 - [X] Add multi-domain support for trackers
+- [ ] Add a timeout for the /all endpoint
+- [ ] Add support for private trackers
 - [ ] Add specific search modes (tv, movie, etc.)
 - [ ] Add support for trackers with user / password authentication
-- [ ] Add support for direct torrent links in addition to magnets
 - [ ] Add support for CloudSolvarr
 - [ ] Direct support for Jackett tracker definitions
