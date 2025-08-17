@@ -1,0 +1,51 @@
+key: aniRena
+name: AniRena
+description: AniRena is a Public torrent tracker for the latest anime and Japanese
+  related torrents
+language: en-US
+schedule: '@every 1h'
+search:
+  type: html
+  urls:
+  - https://www.anirena.com/
+  params: {}
+  results:
+    rows_selector: table tbody tr:has(td.torrents_small_type_data1)
+    fields:
+      title:
+        selector: .torrents_small_info_data1 div
+      details_url:
+        selector: ''
+      download_url:
+        selector: .torrents_small_info_data2 a[title="Download Torrent"]@href
+      size:
+        selector: .torrents_small_size_data1
+      seeders:
+        selector: .torrents_small_seeders_data1 big
+      leechers:
+        selector: .torrents_small_leechers_data1 big
+      publish_date:
+        selector: ''
+category_mappings:
+- indexer_cat: '1'
+  torznab_cat: 5080
+- indexer_cat: '2'
+  torznab_cat: 5080
+- indexer_cat: '3'
+  torznab_cat: 5080
+- indexer_cat: '4'
+  torznab_cat: 5080
+- indexer_cat: '9'
+  torznab_cat: 5080
+- indexer_cat: '10'
+  torznab_cat: 5080
+- indexer_cat: '5'
+  torznab_cat: 4020
+- indexer_cat: '6'
+  torznab_cat: 4000
+- indexer_cat: '7'
+  torznab_cat: 7000
+- indexer_cat: '8'
+  torznab_cat: 3000
+- indexer_cat: '11'
+  torznab_cat: 8000
