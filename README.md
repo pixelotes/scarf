@@ -148,9 +148,10 @@ For more complex sites, you can use the details_url and download_selector fields
 - [X] Add support for simple html scraping
 - [X] Add support for multi-step html scraping (for links in details page)
 - [X] Add multi-domain support for trackers
-- [ ] Add a timeout for the /all endpoint
-- [ ] Add support for private trackers
+- [X] Add a timeout for the /all endpoint
+- [X] Add support for private trackers
+  - [X] Add support for trackers with user / password authentication
+  - [X] Add dynamic config popup based on tracker-defined settings
+  - [ ] Add support for sending custom headers
 - [ ] Add specific search modes (tv, movie, etc.)
-- [ ] Add support for trackers with user / password authentication
-- [ ] Add support for CloudSolvarr
-- [ ] Direct support for Jackett tracker definitions
+- [ ] Add support for FlareSolverr
