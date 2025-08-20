@@ -1,6 +1,6 @@
 # 🧣 Scarf: Your Personal Meta-Indexer
 
-Scarf is a versatile, self-hosted meta-indexer that acts as a bridge between your favorite media automation tools (like Sonarr, Radarr, Lidarr) and various public torrent trackers. 
+Scarf is a versatile, self-hosted meta-indexer that acts as a bridge between your favorite media automation tools (like Sonarr, Radarr, Lidarr) and various public and private torrent trackers. 
 It provides a clean, unified Torznab API, allowing you to search across multiple sites simultaneously.
 
 ## ✨ Features
