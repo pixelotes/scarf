@@ -2,11 +2,13 @@ package indexer
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"go-indexer/config"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -46,23 +48,30 @@ type Manager struct {
 
 // newHttpClient creates a new HTTP client with our logging transport and custom TLS settings.
 func newHttpClient(jar http.CookieJar) *http.Client {
-	// Read the environment variable to decide whether to skip TLS verification.
 	skipVerify := config.GetEnvAsBool("INSECURE_SKIP_VERIFY", false)
-
-	// Create a custom transport based on the default, but with our TLS setting.
-	// We clone the default transport to inherit its settings (like proxy handling).
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: skipVerify}
-
 	if skipVerify {
 		slog.Warn("TLS certificate verification is disabled. Use with caution.")
 	}
 
+	// Create a custom transport with granular timeouts to prevent hangs.
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second, // Connection timeout
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: skipVerify},
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second, // TLS handshake timeout
+		ResponseHeaderTimeout: 10 * time.Second, // Timeout for receiving response headers
+	}
+
 	return &http.Client{
 		Jar:     jar,
-		Timeout: 20 * time.Second,
+		Timeout: 20 * time.Second, // Overall request timeout
 		Transport: &loggingRoundTripper{
-			proxied: transport, // Use our custom transport
+			proxied: transport,
 		},
 	}
 }
@@ -82,7 +91,7 @@ func NewManager(definitionsPath string) (*Manager, error) {
 		watcher:         watcher,
 	}
 
-	if err := m.loadDefinitions(); err != nil {
+	if err := m.Reload(); err != nil {
 		return nil, err
 	}
 
@@ -103,10 +112,9 @@ func (m *Manager) GetIndexer(key string) (*Definition, bool) {
 	return def, ok
 }
 
-// loadDefinitions reads all YAML files from the definitions path and populates the manager
-func (m *Manager) loadDefinitions() error {
+// Reload reads all YAML files from the definitions path and populates the manager
+func (m *Manager) Reload() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	slog.Info("Reloading all indexer definitions...")
 	m.Indexers = make(map[string]*Definition)
@@ -124,14 +132,21 @@ func (m *Manager) loadDefinitions() error {
 		return nil
 	})
 
+	// Grab the callback and count before unlocking to avoid race conditions.
+	callback := m.reloadCallback
+	count := len(m.Indexers)
+
+	// Release the lock *before* calling the callback to prevent deadlocks.
+	m.mu.Unlock()
+
 	if err != nil {
 		return fmt.Errorf("could not walk definitions path: %w", err)
 	}
 
-	if m.reloadCallback != nil {
-		m.reloadCallback()
+	if callback != nil {
+		callback()
 	}
-	slog.Info("Indexer definitions reloaded", "count", len(m.Indexers))
+	slog.Info("Indexer definitions reloaded", "count", count)
 	return nil
 }
 
@@ -147,7 +162,21 @@ func (m *Manager) loadDefinition(path string) error {
 		return fmt.Errorf("could not parse yaml: %w", err)
 	}
 
-	// Load user-specific config from environment variables
+	// Initialize UserConfig if it's nil
+	if def.UserConfig == nil {
+		def.UserConfig = make(map[string]string)
+	}
+
+	// If username/password are specified directly in the yaml, add them to user_config.
+	// This is for convenience, but env vars are recommended for better security.
+	if def.Username != "" {
+		def.UserConfig["username"] = def.Username
+	}
+	if def.Password != "" {
+		def.UserConfig["password"] = def.Password
+	}
+
+	// Load user-specific config from environment variables, potentially overriding yaml values
 	for key := range def.UserConfig {
 		envKey := strings.ToUpper(fmt.Sprintf("%s_%s", def.Key, key))
 		if val, ok := os.LookupEnv(envKey); ok {
@@ -163,11 +192,7 @@ func (m *Manager) loadDefinition(path string) error {
 	m.Indexers[def.Key] = &def
 	slog.Info("Loaded indexer definition", "name", def.Name)
 
-	if def.Login.URL != "" {
-		if err := m.authenticate(def.Key); err != nil {
-			slog.Warn("Initial authentication failed", "indexer", def.Name, "error", err)
-		}
-	}
+	// No longer authenticating at startup
 	return nil
 }
 
@@ -181,7 +206,7 @@ func (m *Manager) watchForChanges() {
 			}
 			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Remove) {
 				slog.Info("Change detected in definitions folder, reloading...", "event", event.String())
-				if err := m.loadDefinitions(); err != nil {
+				if err := m.Reload(); err != nil {
 					slog.Error("Error reloading definitions", "error", err)
 				}
 			}
@@ -213,6 +238,81 @@ func (m *Manager) Close() error {
 	return m.watcher.Close()
 }
 
+// UpdateIndexerUserConfig updates the username and password in the indexer's definition file.
+func (m *Manager) UpdateIndexerUserConfig(key string, config map[string]string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	_, ok := m.Indexers[key]
+	if !ok {
+		return fmt.Errorf("indexer not found: %s", key)
+	}
+
+	filePath := m.findIndexerFile(key)
+	if filePath == "" {
+		return fmt.Errorf("definition file for %s not found", key)
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("could not read definition file: %w", err)
+	}
+
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err != nil {
+		return fmt.Errorf("could not unmarshal yaml: %w", err)
+	}
+
+	// Traverse the YAML node tree to find and update the fields
+	if node.Kind == yaml.DocumentNode && len(node.Content) > 0 {
+		rootMap := node.Content[0]
+		if rootMap.Kind == yaml.MappingNode {
+			// Update username and password
+			updateOrAddYamlField(rootMap, "username", config["username"])
+			updateOrAddYamlField(rootMap, "password", config["password"])
+		}
+	}
+
+	var buf bytes.Buffer
+	encoder := yaml.NewEncoder(&buf)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(&node); err != nil {
+		return fmt.Errorf("could not marshal yaml: %w", err)
+	}
+
+	if err := os.WriteFile(filePath, buf.Bytes(), 0644); err != nil {
+		return fmt.Errorf("could not write definition file: %w", err)
+	}
+	return nil
+}
+
+// Helper to find/update a field in a YAML mapping node
+func updateOrAddYamlField(node *yaml.Node, key, value string) {
+	var found bool
+	for i := 0; i < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			node.Content[i+1].SetString(value)
+			found = true
+			break
+		}
+	}
+	if !found {
+		node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key})
+		node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value})
+	}
+}
+
+// findIndexerFile locates the YAML file for a given indexer key.
+func (m *Manager) findIndexerFile(key string) string {
+	for _, ext := range []string{".yml", ".yaml"} {
+		filePath := filepath.Join(m.definitionsPath, key+ext)
+		if _, err := os.Stat(filePath); err == nil {
+			return filePath
+		}
+	}
+	return ""
+}
+
 // ToggleIndexerEnabled updates the enabled status of an indexer and saves it to the definition file.
 func (m *Manager) ToggleIndexerEnabled(key string, enabled bool) error {
 	m.mu.Lock()
@@ -224,19 +324,9 @@ func (m *Manager) ToggleIndexerEnabled(key string, enabled bool) error {
 	}
 
 	// Find the file path for the given indexer key
-	filePath := filepath.Join(m.definitionsPath, key+".yml")
-	if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		filePath = filepath.Join(m.definitionsPath, key+".yaml")
-		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-			// Check in disabled directory
-			filePath = filepath.Join(m.definitionsPath, "disabled", key+".yml")
-			if _, err := os.Stat(filePath); os.IsNotExist(err) {
-				filePath = filepath.Join(m.definitionsPath, "disabled", key+".yaml")
-				if _, err := os.Stat(filePath); os.IsNotExist(err) {
-					return fmt.Errorf("definition file for %s not found", key)
-				}
-			}
-		}
+	filePath := m.findIndexerFile(key)
+	if filePath == "" {
+		return fmt.Errorf("definition file for %s not found", key)
 	}
 
 	data, err := os.ReadFile(filePath)
@@ -283,16 +373,21 @@ func (m *Manager) ToggleIndexerEnabled(key string, enabled bool) error {
 	return nil
 }
 
-// authenticate handles the login process for a tracker
-func (m *Manager) authenticate(key string) error {
-	def, ok := m.GetIndexer(key)
-	if !ok {
-		return fmt.Errorf("indexer not found: %s", key)
+// authenticate handles the login process for a tracker.
+func (m *Manager) authenticate(def *Definition) error {
+	key := def.Key
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Double-check if another goroutine authenticated while this one was waiting for the lock.
+	if _, ok := m.authClients[key]; ok {
+		return nil
 	}
+
 	slog.Info("Authenticating", "indexer", def.Name)
 
 	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
-	client := newHttpClient(jar) // Use the new client
+	client := newHttpClient(jar)
 
 	form := url.Values{}
 	for k, vTpl := range def.Login.Body {
@@ -318,9 +413,7 @@ func (m *Manager) authenticate(key string) error {
 	}
 
 	slog.Info("Successfully authenticated", "indexer", def.Name)
-	m.mu.Lock()
 	m.authClients[key] = client
-	m.mu.Unlock()
 	return nil
 }
 
@@ -335,13 +428,13 @@ func (m *Manager) getClient(key string) *http.Client {
 }
 
 // Test performs a simple search to test if an indexer is working
-func (m *Manager) Test(indexerKey string) error {
-	_, err := m.Search(indexerKey, "test", "")
+func (m *Manager) Test(ctx context.Context, indexerKey string) error {
+	_, err := m.Search(ctx, indexerKey, "test", "")
 	return err
 }
 
 // Search queries a specific indexer, translating standard categories to indexer-specific ones.
-func (m *Manager) Search(indexerKey, query, category string) ([]SearchResult, error) {
+func (m *Manager) Search(ctx context.Context, indexerKey, query, category string) ([]SearchResult, error) {
 	def, ok := m.GetIndexer(indexerKey)
 	if !ok {
 		return nil, fmt.Errorf("indexer '%s' not found", indexerKey)
@@ -349,6 +442,18 @@ func (m *Manager) Search(indexerKey, query, category string) ([]SearchResult, er
 
 	if !def.Enabled {
 		return nil, fmt.Errorf("indexer '%s' is disabled", indexerKey)
+	}
+
+	// If the tracker requires login, ensure we are authenticated.
+	if def.Login.URL != "" {
+		m.mu.RLock()
+		_, authenticated := m.authClients[indexerKey]
+		m.mu.RUnlock()
+		if !authenticated {
+			if err := m.authenticate(def); err != nil {
+				return nil, fmt.Errorf("authentication failed for indexer '%s': %w", def.Name, err)
+			}
+		}
 	}
 
 	slog.Debug("Starting search", "indexer", def.Name, "query", query, "category", category)
@@ -403,7 +508,7 @@ func (m *Manager) Search(indexerKey, query, category string) ([]SearchResult, er
 				continue
 			}
 
-			req, err = http.NewRequest("POST", baseURL, strings.NewReader(bodyString))
+			req, err = http.NewRequestWithContext(ctx, "POST", baseURL, strings.NewReader(bodyString))
 			if err != nil {
 				lastErr = err
 				continue
@@ -415,7 +520,7 @@ func (m *Manager) Search(indexerKey, query, category string) ([]SearchResult, er
 			}
 			req.Header.Set("Content-Type", contentType)
 		} else { // Default to GET
-			req, err = http.NewRequest("GET", baseURL, nil)
+			req, err = http.NewRequestWithContext(ctx, "GET", baseURL, nil)
 			if err != nil {
 				lastErr = err
 				continue
@@ -435,6 +540,10 @@ func (m *Manager) Search(indexerKey, query, category string) ([]SearchResult, er
 
 		resp, err := client.Do(req)
 		if err != nil {
+			// Check if the error is from the context deadline being exceeded
+			if ctx.Err() == context.DeadlineExceeded {
+				return nil, ctx.Err()
+			}
 			lastErr = fmt.Errorf("search request failed for %s: %w", baseURL, err)
 			continue // Request failed, try the next URL
 		}
@@ -457,7 +566,7 @@ func (m *Manager) Search(indexerKey, query, category string) ([]SearchResult, er
 		case "json":
 			return m.parseJSONResults(resp.Body, def)
 		case "html":
-			return m.parseHTMLResults(resp.Body, def, baseURL)
+			return m.parseHTMLResults(ctx, resp.Body, def, baseURL)
 		default:
 			return nil, fmt.Errorf("unsupported search type: '%s'", def.Search.Type)
 		}
@@ -487,7 +596,7 @@ func (m *Manager) extractAttr(s *goquery.Selection, selector Selector) string {
 }
 
 // parseHTMLResults processes an HTML page response using goquery, with support for two-step fetching.
-func (m *Manager) parseHTMLResults(body io.Reader, def *Definition, baseURL string) ([]SearchResult, error) {
+func (m *Manager) parseHTMLResults(ctx context.Context, body io.Reader, def *Definition, baseURL string) ([]SearchResult, error) {
 	doc, err := goquery.NewDocumentFromReader(body)
 	if err != nil {
 		return nil, err
@@ -519,7 +628,7 @@ func (m *Manager) parseHTMLResults(body io.Reader, def *Definition, baseURL stri
 			go func(searchResult SearchResult, detailURL string) {
 				defer wg.Done()
 				downloadSelector := Selector{Selector: def.Search.Results.DownloadSelector}
-				downloadURL, err := m.fetchDownloadLinkFromDetails(detailURL, downloadSelector)
+				downloadURL, err := m.fetchDownloadLinkFromDetails(ctx, detailURL, downloadSelector)
 				if err != nil {
 					slog.Warn("Failed to fetch details page", "url", detailURL, "error", err)
 					return
@@ -549,9 +658,9 @@ func (m *Manager) parseHTMLResults(body io.Reader, def *Definition, baseURL stri
 }
 
 // fetchDownloadLinkFromDetails makes a second HTTP request to a details page to find the final download link.
-func (m *Manager) fetchDownloadLinkFromDetails(detailURL string, selector Selector) (string, error) {
+func (m *Manager) fetchDownloadLinkFromDetails(ctx context.Context, detailURL string, selector Selector) (string, error) {
 	client := m.getClient("") // Use default client for this
-	req, err := http.NewRequest("GET", detailURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", detailURL, nil)
 	if err != nil {
 		return "", err
 	}
@@ -576,7 +685,7 @@ func (m *Manager) fetchDownloadLinkFromDetails(detailURL string, selector Select
 		return "", fmt.Errorf("download link not found with selector '%s'", selector.Selector)
 	}
 
-	return downloadLink, nil
+	return m.absURL(detailURL, downloadLink), nil
 }
 
 // parseJSONResults processes a JSON API response with support for nested results.
@@ -653,7 +762,7 @@ func processResult(m *Manager, resultValue gjson.Result, resultRaw, parentRaw ma
 	pubDateStr := resultValue.Get(fields.PublishDate.Selector).String()
 	pubDate, _ := parseFuzzyDate(pubDateStr)
 
-	if title == "" {
+	if title == "" || downloadURL == "" {
 		return
 	}
 
@@ -764,11 +873,14 @@ func parseFuzzyDate(dateStr string) (time.Time, error) {
 	}
 
 	if unixTime, err := strconv.ParseInt(dateStr, 10, 64); err == nil {
+		if unixTime > 1e12 { // It's likely milliseconds
+			return time.Unix(0, unixTime*int64(time.Millisecond)), nil
+		}
 		return time.Unix(unixTime, 0), nil
 	}
 
 	formats := []string{
-		time.RFC3339, "2006-01-02 15:04:05", time.RFC1123, "Jan 2, 2006",
+		time.RFC3339, "2006-01-02 15:04:05", time.RFC1123, "Jan 2, 2006", time.RFC822,
 	}
 	for _, format := range formats {
 		t, err := time.Parse(format, dateStr)

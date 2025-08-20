@@ -1,0 +1,98 @@
+key: "hdspace"
+name: "HD-Space"
+description: "HD-Space (HDS) is a Private Torrent Tracker for HD MOVIES / TV"
+type: "private"
+enabled: true
+language: "en-US"
+schedule: "@hourly"
+# --- User Configuration ---
+# Enter your credentials here or set them via environment variables:
+# HDS-SPACE_USERNAME="your-username"
+# HDS-SPACE_PASSWORD="your-password"
+username: "myuser222"
+password: "mypass"
+# Optional settings translated from the Jackett definition
+user_config:
+  sort: "3" # 3=created, 5=seeders, 4=size, 2=title
+  type: "2" # 2=desc, 1=asc
+  freeleech: "false" # Set to "true" to search for freeleech torrents only
+# --- Login Configuration ---
+login:
+  url: "https://hd-space.org/index.php?page=login"
+  method: "post"
+  body:
+    uid: "{{.Config.username}}"
+    pwd: "{{.Config.password}}"
+  # Check for the logout link to confirm a successful login
+  success_check:
+    contains: 'href="logout.php"'
+# --- Search Configuration ---
+search:
+  type: "html"
+  urls:
+    - "https://hd-space.org/index.php?page=torrents&search={{.Query}}&category={{.Category}}&active=0&options=0&order={{.Config.sort}}&by={{.Config.type}}"
+  results:
+    # This selector targets each row in the torrents table.
+    # The freeleech filter is now handled by a URL parameter if enabled.
+    rows_selector: "table.lista > tbody > tr:has(a[href^='index.php?page=torrent-details'])"
+    fields:
+      title:
+        selector: 'td a[href^="index.php?page=torrent-details"]'
+      # The download link is found directly on the search results page.
+      download_url:
+        selector: 'a[href^="download.php?id="]@href'
+      size:
+        selector: "td:nth-child(6)"
+      seeders:
+        selector: "td:nth-child(8)"
+      leechers:
+        selector: "td:nth-child(9)"
+      publish_date:
+        selector: "td:nth-child(5)"
+category_mappings:
+  - indexer_cat: "15"
+    torznab_cat: 2070 # Movies/BluRay
+  - indexer_cat: "40"
+    torznab_cat: 2040 # Movies/HD (Remux)
+  - indexer_cat: "18"
+    torznab_cat: 2040 # Movies/HD (720p)
+  - indexer_cat: "19"
+    torznab_cat: 2040 # Movies/HD (1080p)
+  - indexer_cat: "46"
+    torznab_cat: 2050 # Movies/UHD (2160p)
+  - indexer_cat: "21"
+    torznab_cat: 5040 # TV/HD (720p HDTV)
+  - indexer_cat: "22"
+    torznab_cat: 5040 # TV/HD (1080p HDTV)
+  - indexer_cat: "45"
+    torznab_cat: 5050 # TV/UHD (2160p HDTV)
+  - indexer_cat: "24"
+    torznab_cat: 5070 # TV/Documentary
+  - indexer_cat: "25"
+    torznab_cat: 5070 # TV/Documentary
+  - indexer_cat: "47"
+    torznab_cat: 5070 # TV/Documentary
+  - indexer_cat: "27"
+    torznab_cat: 5080 # TV/Anime
+  - indexer_cat: "28"
+    torznab_cat: 5080 # TV/Anime
+  - indexer_cat: "48"
+    torznab_cat: 5080 # TV/Anime
+  - indexer_cat: "30"
+    torznab_cat: 3040 # Audio/Lossless
+  - indexer_cat: "31"
+    torznab_cat: 3020 # Audio/Video
+  - indexer_cat: "33"
+    torznab_cat: 6000 # XXX
+  - indexer_cat: "34"
+    torznab_cat: 6000 # XXX
+  - indexer_cat: "49"
+    torznab_cat: 6000 # XXX
+  - indexer_cat: "36"
+    torznab_cat: 2020 # Movies/Other (Trailers)
+  - indexer_cat: "37"
+    torznab_cat: 4000 # PC
+  - indexer_cat: "38"
+    torznab_cat: 8000 # Other
+  - indexer_cat: "41"
+    torznab_cat: 2050 # Movies/UHD (4K UHD)
