@@ -141,7 +141,8 @@ type IndexerDetail struct {
 	Type             string                    `json:"type"`
 	Description      string                    `json:"description"`
 	Enabled          bool                      `json:"enabled"`
-	UserConfig       map[string]string         `json:"user_config,omitempty"`
+	Settings         []indexer.UserSetting     `json:"settings,omitempty"` // NEW: For dynamic forms
+	UserConfig       map[string]string         `json:"user_config"`
 	CategoryMappings []indexer.CategoryMapping `json:"category_mappings"`
 	Categories       map[int]string            `json:"categories"`
 }
@@ -163,7 +164,8 @@ func (h *APIHandler) ListIndexers(w http.ResponseWriter, r *http.Request) {
 			Type:             def.Type,
 			Description:      def.Description,
 			Enabled:          def.Enabled,
-			UserConfig:       def.UserConfig,
+			Settings:         def.Settings,   // Pass the form definition to the UI
+			UserConfig:       def.UserConfig, // Pass the current values to the UI
 			CategoryMappings: def.CategoryMappings,
 			Categories:       cats,
 		}
@@ -201,8 +203,6 @@ func (h *APIHandler) UpdateIndexerConfig(w http.ResponseWriter, r *http.Request)
 
 	// Explicitly trigger a reload after saving the configuration.
 	if err := h.Manager.Reload(); err != nil {
-		// Don't fail the request, but log that the reload failed.
-		// The config is saved, and a future reload will pick it up.
 		slog.Error("Failed to reload definitions after config update", "key", payload.Key, "error", err)
 	}
 
@@ -234,7 +234,6 @@ func (h *APIHandler) searchAll(query, category string) ([]indexer.SearchResult, 
 	var wg sync.WaitGroup
 	resultsChan := make(chan []indexer.SearchResult, len(allIndexers))
 
-	// Create a context with a 10-second timeout.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -250,10 +249,8 @@ func (h *APIHandler) searchAll(query, category string) ([]indexer.SearchResult, 
 				slog.Warn("Rate limit exceeded during searchAll", "indexer", indexerKey)
 				return
 			}
-			// Pass the context to the Search method.
 			results, err := h.Manager.Search(ctx, indexerKey, query, category)
 			if err != nil {
-				// We check for the context deadline exceeded error specifically.
 				if err == context.DeadlineExceeded {
 					slog.Warn("Search timed out for indexer", "indexer", indexerKey)
 				} else {
@@ -273,7 +270,6 @@ func (h *APIHandler) searchAll(query, category string) ([]indexer.SearchResult, 
 	uniqueResults := make(map[string]indexer.SearchResult)
 	for resultSet := range resultsChan {
 		for _, result := range resultSet {
-			// Use a combination of title and size to create a more unique key
 			uniqueKey := fmt.Sprintf("%s-%d", result.Title, result.Size)
 			if _, exists := uniqueResults[uniqueKey]; !exists {
 				uniqueResults[uniqueKey] = result
@@ -379,7 +375,7 @@ func (h *APIHandler) TorznabAPI(w http.ResponseWriter, r *http.Request) {
 	switch torznabType {
 	case "caps":
 		h.handleCaps(w, r, indexerKey)
-	case "search", "tv-search", "movie-search": // Handle different search types
+	case "search", "tv-search", "movie-search":
 		h.handleSearch(w, r, indexerKey)
 	default:
 		http.Error(w, fmt.Sprintf("Unsupported Torznab function: %s", torznabType), http.StatusBadRequest)
@@ -399,36 +395,18 @@ func (h *APIHandler) handleCaps(w http.ResponseWriter, r *http.Request, indexerK
 
 	caps := TorznabCaps{
 		XMLName: xml.Name{Local: "caps"},
-		Server: TorznabServer{
-			Title: def.Name,
-		},
-		Limits: TorznabLimits{
-			Max:     100,
-			Default: 50,
-		},
+		Server:  TorznabServer{Title: def.Name},
+		Limits:  TorznabLimits{Max: 100, Default: 50},
 		Searching: TorznabSearching{
-			Search: TorznabSearchType{
-				Available:       "yes",
-				SupportedParams: "q,cat",
-			},
-			TvSearch: TorznabSearchType{
-				Available:       "yes",
-				SupportedParams: "q,cat,season,ep",
-			},
-			MovieSearch: TorznabSearchType{
-				Available:       "yes",
-				SupportedParams: "q,cat,imdbid",
-			},
+			Search:      TorznabSearchType{Available: "yes", SupportedParams: "q,cat"},
+			TvSearch:    TorznabSearchType{Available: "yes", SupportedParams: "q,cat,season,ep"},
+			MovieSearch: TorznabSearchType{Available: "yes", SupportedParams: "q,cat,imdbid"},
 		},
-		Categories: TorznabCategories{
-			Categories: []TorznabParentCategory{},
-		},
+		Categories: TorznabCategories{Categories: []TorznabParentCategory{}},
 	}
 
-	// Group subcategories under their parents
 	parentCategories := make(map[int]TorznabParentCategory)
 
-	// Add defensive check for nil CategoryMappings
 	if def.CategoryMappings != nil {
 		for _, mapping := range def.CategoryMappings {
 			if stdCat, ok := indexer.StandardCategories[mapping.TorznabCategory]; ok {
@@ -438,7 +416,7 @@ func (h *APIHandler) handleCaps(w http.ResponseWriter, r *http.Request, indexerK
 						parentCategories[parentID] = TorznabParentCategory{
 							ID:     strconv.Itoa(parent.ID),
 							Name:   parent.Name,
-							Subcat: []TorznabSubCategory{}, // Initialize slice
+							Subcat: []TorznabSubCategory{},
 						}
 					}
 					pCat := parentCategories[parentID]
@@ -452,21 +430,16 @@ func (h *APIHandler) handleCaps(w http.ResponseWriter, r *http.Request, indexerK
 		}
 	}
 
-	// Convert map to slice
 	for _, pCat := range parentCategories {
 		caps.Categories.Categories = append(caps.Categories.Categories, pCat)
 	}
 
-	slog.Debug("Generated caps structure", "indexer", indexerKey, "parent_categories", len(parentCategories))
-
 	output, err := xml.MarshalIndent(caps, "", "  ")
 	if err != nil {
-		slog.Error("Failed to marshal caps XML", "indexer", indexerKey, "error", err, "caps_structure", fmt.Sprintf("%+v", caps))
+		slog.Error("Failed to marshal caps XML", "indexer", indexerKey, "error", err)
 		http.Error(w, "Failed to generate caps XML", http.StatusInternalServerError)
 		return
 	}
-
-	slog.Debug("Successfully generated caps XML", "indexer", indexerKey, "xml_length", len(output))
 
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 	w.Write([]byte(xml.Header + string(output)))

@@ -32,7 +32,7 @@ type FieldDefinition struct {
 // SearchDefinition defines how to query a tracker's API
 type SearchDefinition struct {
 	Type        string            `yaml:"type"`
-	URLs        []string          `yaml:"urls"` // Cambiado de 'url' a 'urls' y de string a []string
+	URLs        []string          `yaml:"urls"`
 	Method      string            `yaml:"method"`
 	Body        string            `yaml:"body"`
 	ContentType string            `yaml:"content_type"`
@@ -46,18 +46,26 @@ type SearchDefinition struct {
 	} `yaml:"results"`
 }
 
+// UserSetting defines a single configurable field for the UI settings modal.
+type UserSetting struct {
+	Name    string            `yaml:"name" json:"name"`
+	Type    string            `yaml:"type" json:"type"`
+	Label   string            `yaml:"label" json:"label"`
+	Default string            `yaml:"default" json:"default"`
+	Options map[string]string `yaml:"options,omitempty" json:"options,omitempty"`
+}
+
 // Definition represents a single tracker's configuration
 type Definition struct {
 	Key              string            `yaml:"key" json:"-"`
 	Name             string            `yaml:"name" json:"name"`
 	Type             string            `yaml:"type" json:"type"`
 	Enabled          bool              `yaml:"enabled" json:"enabled"`
-	Username         string            `yaml:"username,omitempty" json:"-"`
-	Password         string            `yaml:"password,omitempty" json:"-"`
 	Description      string            `yaml:"description" json:"-"`
 	Language         string            `yaml:"language" json:"-"`
 	Schedule         string            `yaml:"schedule" json:"-"`
-	UserConfig       map[string]string `yaml:"user_config" json:"-"`
+	Settings         []UserSetting     `yaml:"settings" json:"settings,omitempty"` // Defines the settings form
+	UserConfig       map[string]string `yaml:"-" json:"user_config"`               // Holds the user's saved values
 	Login            LoginDefinition   `yaml:"login" json:"-"`
 	Search           SearchDefinition  `yaml:"search" json:"-"`
 	Categories       map[string]string `yaml:"categories" json:"-"`
