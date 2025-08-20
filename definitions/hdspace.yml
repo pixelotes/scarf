@@ -9,8 +9,8 @@ schedule: "@hourly"
 # Enter your credentials here or set them via environment variables:
 # HDS-SPACE_USERNAME="your-username"
 # HDS-SPACE_PASSWORD="your-password"
-username: "myuser222"
-password: "mypass"
+username: ""
+password: ""
 # Optional settings translated from the Jackett definition
 user_config:
   sort: "3" # 3=created, 5=seeders, 4=size, 2=title
