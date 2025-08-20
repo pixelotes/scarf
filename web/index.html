@@ -62,70 +62,25 @@
             background-color: var(--primary-color);
             padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; text-transform: capitalize;
         }
-        /* The switch - the box around the slider */
         .switch {
-            position: absolute;
-            top: 0.5rem;
-            right: 0.5rem;
-            display: inline-block;
-            width: 34px;
-            height: 20px;
+            position: absolute; top: 0.5rem; right: 0.5rem; display: inline-block;
+            width: 34px; height: 20px;
         }
-
-        /* Hide default HTML checkbox */
-        .switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-
-        /* The slider */
+        .switch input { opacity: 0; width: 0; height: 0; }
         .slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: #ccc;
-            -webkit-transition: .4s;
-            transition: .4s;
+            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #ccc; transition: .4s;
         }
-
         .slider:before {
-            position: absolute;
-            content: "";
-            height: 12px;
-            width: 12px;
-            left: 4px;
-            bottom: 4px;
-            background-color: white;
-            -webkit-transition: .4s;
-            transition: .4s;
+            position: absolute; content: ""; height: 12px; width: 12px;
+            left: 4px; bottom: 4px; background-color: white; transition: .4s;
         }
+        input:checked + .slider { background-color: var(--primary-color); }
+        input:focus + .slider { box-shadow: 0 0 1px var(--primary-color); }
+        input:checked + .slider:before { transform: translateX(14px); }
+        .slider.round { border-radius: 20px; }
+        .slider.round:before { border-radius: 50%; }
 
-        input:checked + .slider {
-            background-color: var(--primary-color);
-        }
-
-        input:focus + .slider {
-            box-shadow: 0 0 1px var(--primary-color);
-        }
-
-        input:checked + .slider:before {
-            -webkit-transform: translateX(14px);
-            -ms-transform: translateX(14px);
-            transform: translateX(14px);
-        }
-
-        /* Rounded sliders */
-        .slider.round {
-            border-radius: 20px;
-        }
-
-        .slider.round:before {
-            border-radius: 50%;
-        }
         /* Modal Styles */
         .modal-backdrop {
             display: none; position: fixed; z-index: 1000; left: 0; top: 0;
@@ -143,6 +98,8 @@
         }
         .modal-close:hover, .modal-close:focus { color: var(--text-color); }
         .modal-content form { display: flex; flex-direction: column; gap: 1rem; }
+        .modal-content form .form-group { display: flex; flex-direction: column; gap: 0.5rem; }
+        .modal-content form .form-group-checkbox { flex-direction: row; align-items: center; }
     </style>
 </head>
 <body>
@@ -223,11 +180,6 @@
             <h2 id="settings-modal-title">Indexer Settings</h2>
             <p id="settings-modal-desc"></p>
             <form id="settings-modal-form">
-                <input type="hidden" id="settings-indexer-key">
-                <label for="settings-username">Username</label>
-                <input type="text" id="settings-username" placeholder="Enter username">
-                <label for="settings-password">Password</label>
-                <input type="password" id="settings-password" placeholder="Enter password">
                 <button type="submit">Save Configuration</button>
             </form>
              <p id="settings-modal-status" style="text-align:center; margin-top:1rem;"></p>
@@ -242,17 +194,13 @@
             const loginError = document.getElementById('login-error');
             const appContainer = document.getElementById('app-container');
             let sessionToken = '';
+            let allIndexersData = {}; // Cache for indexer data
 
             // --- State Management for Search Results ---
             let allResults = [];
             let currentPage = 1;
             const resultsPerPage = 50;
-            let currentSort = {
-                key: 'Seeders',
-                direction: 'desc'
-            };
-            let tooltipTimeout;
-
+            let currentSort = { key: 'Seeders', direction: 'desc' };
 
             // --- AUTHENTICATION ---
             loginForm.addEventListener('submit', async (e) => {
@@ -265,8 +213,8 @@
                         body: JSON.stringify({ password: passwordInput.value })
                     });
                     if (!response.ok) throw new Error('Incorrect password');
-                    const data = await response.json();
-                    sessionToken = data.token;
+                    const { token } = await response.json();
+                    sessionToken = token;
                     loginScreen.style.display = 'none';
                     appContainer.style.display = 'block';
                     initializeApp();
@@ -277,356 +225,301 @@
             
             // --- APP INITIALIZATION ---
             function initializeApp() {
-                // 1. Setup Navigation
-                const navButtons = document.getElementById('nav-buttons');
-                navButtons.addEventListener('click', (e) => {
+                document.getElementById('nav-buttons').addEventListener('click', (e) => {
                     if (e.target.tagName === 'BUTTON') {
                         const pageId = e.target.dataset.page;
-                        navButtons.querySelector('.active').classList.remove('active');
+                        document.querySelector('#nav-buttons .active').classList.remove('active');
                         e.target.classList.add('active');
                         document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === pageId));
                     }
                 });
-
-                // 2. Setup Search Form Listener
                 document.getElementById('search-form').addEventListener('submit', handleSearchSubmit);
+                document.querySelector('#results-table thead').addEventListener('click', handleSortClick);
+                document.getElementById('prev-page-btn').addEventListener('click', () => { if (currentPage > 1) { currentPage--; renderCurrentPage(); } });
+                document.getElementById('next-page-btn').addEventListener('click', () => { const totalPages = Math.ceil(allResults.length / resultsPerPage); if (currentPage < totalPages) { currentPage++; renderCurrentPage(); } });
                 
-                // 3. Setup Table Header Sorting Listener
-                document.querySelector('#results-table thead').addEventListener('click', (e) => {
-                    const header = e.target.closest('.sortable');
-                    if (header) {
-                        const sortKey = header.dataset.sort;
-                        if (currentSort.key === sortKey) {
-                            currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
-                        } else {
-                            currentSort.key = sortKey;
-                            currentSort.direction = ['Size', 'Seeders', 'Leechers', 'PublishDate'].includes(sortKey) ? 'desc' : 'asc';
-                        }
-                        currentPage = 1;
-                        renderCurrentPage();
-                    }
-                });
-                
-                // 4. Setup Pagination Listeners
-                document.getElementById('prev-page-btn').addEventListener('click', () => {
-                    if (currentPage > 1) {
-                        currentPage--;
-                        renderCurrentPage();
-                    }
-                });
-                document.getElementById('next-page-btn').addEventListener('click', () => {
-                    const totalPages = Math.ceil(allResults.length / resultsPerPage);
-                    if (currentPage < totalPages) {
-                        currentPage++;
-                        renderCurrentPage();
-                    }
-                });
-                
-                // 5. Setup Settings Modal Listeners
                 setupSettingsModal();
-
-                // 6. Load Initial Data
-                loadIndexersAndCategories();
-                loadIndexerStatus();
+                loadInitialData();
                 setupLogViewer();
-                document.getElementById('type-filter').addEventListener('change', loadIndexerStatus);
+                document.getElementById('type-filter').addEventListener('change', renderStatusGrid);
             }
             
+            // --- DATA LOADING & CACHING ---
+            async function loadInitialData() {
+                await fetchIndexerData();
+                populateIndexerDropdown();
+                renderStatusGrid();
+                setupFlexgetURL();
+            }
+
+            async function fetchIndexerData() {
+                const response = await fetchWithAuth('/api/v1/indexers');
+                allIndexersData = await response.json();
+            }
+
             // --- EVENT HANDLERS & API CALLERS ---
             async function handleSearchSubmit(e) {
                 e.preventDefault();
-                const indexer = new FormData(e.target).get('indexer');
-                const query = new FormData(e.target).get('q');
-                const cat = new FormData(e.target).get('cat');
+                const formData = new FormData(e.target);
+                const indexer = formData.get('indexer');
+                const query = formData.get('q');
+                const cat = formData.get('cat');
                 const searchStatus = document.getElementById('search-status');
-                const resultsTable = document.getElementById('results-table');
-                const paginationControls = document.getElementById('pagination-controls');
                 
                 searchStatus.textContent = 'Searching...';
                 searchStatus.style.display = 'block';
-                resultsTable.style.display = 'none';
-                paginationControls.style.display = 'none';
+                document.getElementById('results-table').style.display = 'none';
+                document.getElementById('pagination-controls').style.display = 'none';
                 
                 try {
                     const response = await fetchWithAuth(`/api/v1/search?indexer=${indexer}&q=${encodeURIComponent(query)}&cat=${cat}`);
                     if (!response.ok) throw new Error((await response.json()).error || 'Search request failed');
-                    
-                    allResults = await response.json();
-                    
-                    if (indexer === 'all') {
-                        currentSort = { key: 'Seeders', direction: 'desc' };
-                    } else {
-                        currentSort = { key: 'PublishDate', direction: 'desc' };
-                    }
-                    
+                    allResults = await response.json() || [];
+                    currentSort = indexer === 'all' ? { key: 'Seeders', direction: 'desc' } : { key: 'PublishDate', direction: 'desc' };
                     currentPage = 1;
                     renderCurrentPage();
-
                 } catch (error) {
                     searchStatus.textContent = `Error: ${error.message}`;
                 }
             }
+
+            function handleSortClick(e) {
+                const header = e.target.closest('.sortable');
+                if (!header) return;
+                const sortKey = header.dataset.sort;
+                if (currentSort.key === sortKey) {
+                    currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+                } else {
+                    currentSort.key = sortKey;
+                    currentSort.direction = ['Size', 'Seeders', 'Leechers', 'PublishDate'].includes(sortKey) ? 'desc' : 'asc';
+                }
+                currentPage = 1;
+                renderCurrentPage();
+            }
             
-            async function loadIndexersAndCategories() {
+            // --- UI RENDERING ---
+            function populateIndexerDropdown() {
                 const indexerSelect = document.getElementById('indexer-select');
-                const response = await fetchWithAuth('/api/v1/indexers');
-                const indexers = await response.json();
                 indexerSelect.innerHTML = '<option value="all">All Indexers</option>';
-                for (const key in indexers) {
-                    if (indexers[key].enabled) {
+                Object.entries(allIndexersData).sort(([,a],[,b]) => a.name.localeCompare(b.name)).forEach(([key, indexer]) => {
+                    if (indexer.enabled) {
                         const option = document.createElement('option');
                         option.value = key;
-                        option.textContent = indexers[key].name;
+                        option.textContent = indexer.name;
                         indexerSelect.appendChild(option);
                     }
-                }
+                });
                 updateCategoryDropdown();
                 indexerSelect.addEventListener('change', updateCategoryDropdown);
             }
 
-            async function updateCategoryDropdown() {
-                const indexerSelect = document.getElementById('indexer-select');
+            function updateCategoryDropdown() {
                 const categorySelect = document.getElementById('category-select');
-                const selectedIndexer = indexerSelect.value;
+                const selectedIndexerKey = document.getElementById('indexer-select').value;
                 categorySelect.innerHTML = '<option value="">All Categories</option>';
 
-                const response = await fetchWithAuth('/api/v1/indexers');
-                const indexers = await response.json();
-
                 let categories = {};
-                if (selectedIndexer === 'all') {
-                    Object.values(indexers).forEach(idx => {
-                        if (idx.enabled) {
-                            for(const id in idx.categories) {
-                                if (!Object.values(categories).includes(idx.categories[id])) {
-                                    categories[id] = idx.categories[id];
-                                }
-                            }
-                        }
+                if (selectedIndexerKey === 'all') {
+                    Object.values(allIndexersData).forEach(idx => {
+                        if (idx.enabled) Object.assign(categories, idx.categories);
                     });
-                } else if (indexers[selectedIndexer] && indexers[selectedIndexer].enabled) {
-                    categories = indexers[selectedIndexer].categories;
+                } else if (allIndexersData[selectedIndexerKey]) {
+                    categories = allIndexersData[selectedIndexerKey].categories;
                 }
                 
-                const sortedCategories = Object.entries(categories).sort(([,a],[,b]) => a.localeCompare(b));
-                for (const [id, name] of sortedCategories) {
+                Object.entries(categories).sort(([,a],[,b]) => a.localeCompare(b)).forEach(([id, name]) => {
                     const option = document.createElement('option');
                     option.value = id;
                     option.textContent = name;
                     categorySelect.appendChild(option);
-                }
+                });
             }
             
-            async function loadIndexerStatus() {
+            function renderStatusGrid() {
                 const statusGrid = document.getElementById('status-grid');
-                statusGrid.innerHTML = '';
-                const response = await fetchWithAuth('/api/v1/indexers');
-                const indexers = await response.json();
-                
-                const flexgetRes = await fetchWithAuth('/api/v1/flexget_key');
-                const flexgetData = await flexgetRes.json();
-                const apiKey = flexgetData.key;
-                
-                document.getElementById('flexget-url-input').value = `${window.location.origin}/torznab/all?apikey=${apiKey}`;
-                
                 const filter = document.getElementById('type-filter').value;
+                statusGrid.innerHTML = '';
+                
+                Object.entries(allIndexersData).forEach(([key, indexer]) => {
+                    if (filter !== 'all' && indexer.type !== filter) return;
 
-                for (const key in indexers) {
-                    const indexer = indexers[key];
-                    if (filter !== 'all' && indexer.type !== filter) {
-                        continue;
-                    }
                     const card = document.createElement('div');
                     card.className = 'status-card';
-                    card.setAttribute('data-description', indexer.description);
-                    
-                    let settingsButton = '';
-                    if (indexer.type === 'private' || indexer.type === 'semiprivate') {
-                        settingsButton = `<button class="settings-btn" data-key="${key}" title="Settings">⚙️</button>`;
-                    }
-                    
                     card.innerHTML = `
                         <label class="switch">
                             <input type="checkbox" class="enable-switch" data-key="${key}" ${indexer.enabled ? 'checked' : ''}>
                             <span class="slider round"></span>
                         </label>
                         <h3>${indexer.name}</h3>
-                        <span class="tracker-type-tag">${indexer.type}</span>
-                        <p>Status: <span class="status-indicator status-unknown" id="status-${key}"></span><span id="status-text-${key}">Unknown</span></p>
+                        <p><span class="tracker-type-tag">${indexer.type}</span></p>
+                        <p>Status: <span id="status-text-${key}">Unknown</span></p>
                         <div class="status-card-actions">
                             <button class="test-btn" data-key="${key}">Test</button>
-                            <button class="copy-btn" data-key="${key}">
-                                📝 Copy Link
-                            </button>
-                            ${settingsButton}
+                            <button class="copy-btn" data-key="${key}">📝 Copy Link</button>
+                            ${(indexer.settings && indexer.settings.length > 0) ? `<button class="settings-btn" data-key="${key}" title="Settings">⚙️</button>` : ''}
                         </div>
                     `;
                     statusGrid.appendChild(card);
-                }
-
-                statusGrid.addEventListener('mouseover', (e) => {
-                    const card = e.target.closest('.status-card');
-                    if (card && card.dataset.description) {
-                        clearTimeout(tooltipTimeout);
-                        tooltipTimeout = setTimeout(() => {
-                            card.title = card.dataset.description;
-                        }, 2000);
-                    }
                 });
 
-                statusGrid.addEventListener('mouseout', (e) => {
-                    const card = e.target.closest('.status-card');
-                    if (card) {
-                        clearTimeout(tooltipTimeout);
-                        card.title = '';
-                    }
-                });
-
-                statusGrid.addEventListener('click', async (e) => {
-                    const testButton = e.target.closest('.test-btn');
-                    const copyButton = e.target.closest('.copy-btn');
-                    const settingsButton = e.target.closest('.settings-btn');
-
-                    if (testButton) {
-                        const key = testButton.dataset.key;
-                        const statusText = document.getElementById(`status-text-${key}`);
-                        statusText.textContent = 'Testing...';
-                        const res = await fetchWithAuth(`/api/v1/test_indexer?indexer=${key}`);
-                        const data = await res.json();
-                        document.getElementById(`status-${key}`).className = `status-indicator ${data.ok ? 'status-success' : 'status-error'}`;
-                        statusText.textContent = data.ok ? '🟢 OK' : `Failed: ${data.error}`;
-                    }
-
-                    if (copyButton) {
-                        const key = copyButton.dataset.key;
-                        const urlToCopy = `${window.location.origin}/torznab/${key}?apikey=${apiKey}`;
-                        navigator.clipboard.writeText(urlToCopy).then(() => {
-                            const originalText = copyButton.innerHTML;
-                            copyButton.textContent = 'Copied!';
-                            setTimeout(() => { copyButton.innerHTML = originalText; }, 2000);
-                        });
-                    }
-                    
-                    if (settingsButton) {
-                        const key = settingsButton.dataset.key;
-                        const indexer = indexers[key];
-                        openSettingsModal(key, indexer);
-                    }
-                });
-
-                statusGrid.addEventListener('change', async (e) => {
-                    const switchInput = e.target.closest('.enable-switch');
-                    if (switchInput) {
-                        const key = switchInput.dataset.key;
-                        const enabled = switchInput.checked;
-                        try {
-                            const response = await fetchWithAuth('/api/v1/indexer/toggle', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ key, enabled })
-                            });
-                            if (!response.ok) throw new Error('Failed to toggle indexer');
-                            loadIndexersAndCategories(); // Reload indexers in the search dropdown
-                        } catch (error) {
-                            console.error(error);
-                            // Revert the switch on error
-                            switchInput.checked = !enabled;
-                        }
-                    }
-                });
-
-                document.getElementById('test-all-btn').addEventListener('click', () => {
-                    document.querySelectorAll('.status-card .test-btn').forEach(btn => btn.click());
-                });
-            }
-
-            function setupLogViewer() {
-                const logContainer = document.getElementById('log-container');
-                const logFilter = document.getElementById('log-filter');
-                const ws = new WebSocket(`ws://${window.location.host}/api/v1/logs?token=${sessionToken}`);
-
-                ws.onmessage = (event) => {
-                    const logLine = document.createElement('div');
-                    logLine.className = 'log-line';
-                    logLine.textContent = event.data;
-                    logContainer.appendChild(logLine);
-                    logContainer.scrollTop = logContainer.scrollHeight;
-                    applyLogFilter();
-                };
-                logFilter.addEventListener('input', applyLogFilter);
-                function applyLogFilter() {
-                    const filterText = logFilter.value.toLowerCase();
-                    logContainer.querySelectorAll('.log-line').forEach(line => {
-                        line.style.display = line.textContent.toLowerCase().includes(filterText) ? '' : 'none';
-                    });
-                }
+                statusGrid.onclick = handleStatusGridClick;
+                statusGrid.onchange = handleStatusGridChange;
+                document.getElementById('test-all-btn').onclick = () => document.querySelectorAll('.test-btn').forEach(btn => btn.click());
             }
             
             // --- Settings Modal Logic ---
             function setupSettingsModal() {
                 const modal = document.getElementById('settings-modal');
-                const closeBtn = document.querySelector('.modal-close');
-                const form = document.getElementById('settings-modal-form');
-
-                closeBtn.onclick = () => { modal.style.display = "none"; };
-                window.onclick = (event) => {
-                    if (event.target == modal) {
-                        modal.style.display = "none";
-                    }
-                };
-
-                form.addEventListener('submit', async (e) => {
+                document.querySelector('.modal-close').onclick = () => modal.style.display = "none";
+                window.onclick = (event) => { if (event.target == modal) modal.style.display = "none"; };
+                
+                document.getElementById('settings-modal-form').addEventListener('submit', async (e) => {
                     e.preventDefault();
-                    const key = document.getElementById('settings-indexer-key').value;
-                    const username = document.getElementById('settings-username').value;
-                    const password = document.getElementById('settings-password').value;
+                    const formData = new FormData(e.target);
+                    const key = formData.get('key');
+                    const config = {};
+                    formData.forEach((value, name) => {
+                        if (name !== 'key') config[name] = value;
+                    });
+                    
+                    // Handle unchecked checkboxes
+                    const indexer = allIndexersData[key];
+                    indexer.settings?.forEach(setting => {
+                        if (setting.type === 'checkbox' && !config.hasOwnProperty(setting.name)) {
+                            config[setting.name] = "false";
+                        }
+                    });
+
                     const statusEl = document.getElementById('settings-modal-status');
                     statusEl.textContent = 'Saving...';
                     
                     try {
                         const response = await fetchWithAuth('/api/v1/indexer/config', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ key, config: { username, password } })
+                            method: 'POST', body: JSON.stringify({ key, config })
                         });
                         if (!response.ok) throw new Error('Failed to save configuration.');
                         
-                        statusEl.textContent = '✅ Saved successfully! Please test the indexer.';
-                        setTimeout(() => { modal.style.display = "none"; }, 2000);
-                        
+                        statusEl.textContent = '✅ Saved successfully!';
+                        await fetchIndexerData(); // Refresh data from backend
+                        setTimeout(() => modal.style.display = "none", 1500);
                     } catch (error) {
                          statusEl.textContent = `Error: ${error.message}`;
                     }
                 });
             }
             
-            function openSettingsModal(key, indexer) {
+            function openSettingsModal(key) {
+                const indexer = allIndexersData[key];
+                if (!indexer) return;
+
                 const modal = document.getElementById('settings-modal');
+                const form = document.getElementById('settings-modal-form');
+                
                 document.getElementById('settings-modal-title').textContent = `${indexer.name} Settings`;
                 document.getElementById('settings-modal-desc').textContent = indexer.description;
-                document.getElementById('settings-indexer-key').value = key;
-                document.getElementById('settings-username').value = indexer.user_config?.username || '';
-                document.getElementById('settings-password').value = indexer.user_config?.password || '';
                 document.getElementById('settings-modal-status').textContent = '';
+                
+                // Clear old form and add hidden key input
+                form.innerHTML = `<input type="hidden" name="key" value="${key}">`;
+                
+                // Dynamically build form
+                indexer.settings?.forEach(setting => {
+                    const group = document.createElement('div');
+                    group.className = 'form-group';
+
+                    const label = document.createElement('label');
+                    label.htmlFor = `setting-${setting.name}`;
+                    label.textContent = setting.label;
+                    
+                    let input;
+                    const currentValue = indexer.user_config[setting.name] || setting.default;
+
+                    switch(setting.type) {
+                        case 'select':
+                            input = document.createElement('select');
+                            input.id = `setting-${setting.name}`;
+                            input.name = setting.name;
+                            Object.entries(setting.options).forEach(([value, text]) => {
+                                const option = document.createElement('option');
+                                option.value = value;
+                                option.textContent = text;
+                                if (value === currentValue) option.selected = true;
+                                input.appendChild(option);
+                            });
+                            group.appendChild(label);
+                            group.appendChild(input);
+                            break;
+                        case 'checkbox':
+                            input = document.createElement('input');
+                            input.type = 'checkbox';
+                            input.id = `setting-${setting.name}`;
+                            input.name = setting.name;
+                            input.value = "true";
+                            if (currentValue === "true") input.checked = true;
+                            group.classList.add('form-group-checkbox');
+                            group.appendChild(input);
+                            group.appendChild(label);
+                            break;
+                        default: // text, password
+                            input = document.createElement('input');
+                            input.type = setting.type;
+                            input.id = `setting-${setting.name}`;
+                            input.name = setting.name;
+                            input.value = currentValue;
+                            group.appendChild(label);
+                            group.appendChild(input);
+                            break;
+                    }
+                    form.appendChild(group);
+                });
+
+                const submitButton = document.createElement('button');
+                submitButton.type = 'submit';
+                submitButton.textContent = 'Save Configuration';
+                form.appendChild(submitButton);
+
                 modal.style.display = 'flex';
             }
 
+            // --- Click/Change Handlers for Status Grid ---
+            async function handleStatusGridClick(e) {
+                const key = e.target.dataset.key;
+                if (!key) return;
 
-            // --- RENDER & HELPER FUNCTIONS ---
-            function sortResults() {
-                const { key, direction } = currentSort;
-                const dir = direction === 'asc' ? 1 : -1;
-
-                allResults.sort((a, b) => {
-                    const valA = a[key];
-                    const valB = b[key];
-                    if (typeof valA === 'string') {
-                        return valA.localeCompare(valB) * dir;
-                    }
-                    return (valA - valB) * dir;
-                });
+                if (e.target.matches('.test-btn')) {
+                    const statusText = document.getElementById(`status-text-${key}`);
+                    statusText.textContent = 'Testing...';
+                    const response = await fetchWithAuth(`/api/v1/test_indexer?indexer=${key}`);
+                    const data = await response.json();
+                    statusText.textContent = data.ok ? '🟢 OK' : `🔴 Failed: ${data.error}`;
+                } else if (e.target.matches('.copy-btn')) {
+                    const apiKey = (await (await fetchWithAuth('/api/v1/flexget_key')).json()).key;
+                    navigator.clipboard.writeText(`${window.location.origin}/torznab/${key}?apikey=${apiKey}`);
+                    e.target.textContent = 'Copied!';
+                    setTimeout(() => e.target.textContent = '📝 Copy Link', 1500);
+                } else if (e.target.matches('.settings-btn')) {
+                    openSettingsModal(key);
+                }
             }
-
+            async function handleStatusGridChange(e) {
+                 if (e.target.matches('.enable-switch')) {
+                    const key = e.target.dataset.key;
+                    const enabled = e.target.checked;
+                    try {
+                        const response = await fetchWithAuth('/api/v1/indexer/toggle', {
+                            method: 'POST', body: JSON.stringify({ key, enabled })
+                        });
+                        if (!response.ok) throw new Error('Failed to toggle indexer');
+                        allIndexersData[key].enabled = enabled; // Update local state
+                        populateIndexerDropdown(); // Refresh dropdown
+                    } catch (error) {
+                        console.error(error);
+                        e.target.checked = !enabled; // Revert on error
+                    }
+                }
+            }
+            
+            // --- Helper Functions ---
             function renderCurrentPage() {
                 const searchStatus = document.getElementById('search-status');
                 const resultsTable = document.getElementById('results-table');
@@ -648,26 +541,21 @@
                 resultsBody.innerHTML = '';
 
                 const totalPages = Math.ceil(allResults.length / resultsPerPage);
-                const start = (currentPage - 1) * resultsPerPage;
-                const end = start + resultsPerPage;
-                const pageResults = allResults.slice(start, end);
+                const pageResults = allResults.slice((currentPage - 1) * resultsPerPage, currentPage * resultsPerPage);
 
                 pageResults.forEach(item => {
-                    const row = document.createElement('tr');
-                    const pubDate = item.PublishDate ? new Date(item.PublishDate).toLocaleString() : 'N/A';
+                    const row = resultsBody.insertRow();
                     row.innerHTML = `
                         <td>${item.Title}</td>
                         <td>${formatBytes(item.Size)}</td>
                         <td class="seeders">${item.Seeders}</td>
                         <td class="leechers">${item.Leechers}</td>
-                        <td>${pubDate}</td>
+                        <td>${item.PublishDate ? new Date(item.PublishDate).toLocaleString() : 'N/A'}</td>
                         <td class="download-cell">
                             <a href="${item.DownloadURL}" title="Get magnet link or torrent file">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                             </a>
-                        </td>
-                    `;
-                    resultsBody.appendChild(row);
+                        </td>`;
                 });
 
                 document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages}`;
@@ -678,20 +566,58 @@
                 document.querySelectorAll('#results-table thead th.sortable').forEach(th => {
                     const sortKey = th.dataset.sort;
                     const arrow = th.querySelector('.sort-arrow');
-                    if (sortKey === currentSort.key) {
-                        th.classList.add('active');
-                        arrow.innerHTML = currentSort.direction === 'asc' ? '▲' : '▼';
-                    } else {
-                        th.classList.remove('active');
-                        arrow.innerHTML = '';
-                    }
+                    th.classList.toggle('active', sortKey === currentSort.key);
+                    if (sortKey === currentSort.key) arrow.innerHTML = currentSort.direction === 'asc' ? '▲' : '▼';
+                    else arrow.innerHTML = '';
                 });
             }
 
+            function sortResults() {
+                const { key, direction } = currentSort;
+                const dir = direction === 'asc' ? 1 : -1;
+                allResults.sort((a, b) => {
+                    const valA = a[key];
+                    const valB = b[key];
+                    if (typeof valA === 'string') return valA.localeCompare(valB) * dir;
+                    return (valA - valB) * dir;
+                });
+            }
+
+            async function setupFlexgetURL() {
+                const flexgetRes = await fetchWithAuth('/api/v1/flexget_key');
+                const flexgetData = await flexgetRes.json();
+                document.getElementById('flexget-url-input').value = `${window.location.origin}/torznab/all?apikey=${flexgetData.key}`;
+            }
+
+            function setupLogViewer() {
+                const logContainer = document.getElementById('log-container');
+                const logFilter = document.getElementById('log-filter');
+                const ws = new WebSocket(`ws://${window.location.host}/api/v1/logs?token=${sessionToken}`);
+                ws.onmessage = (event) => {
+                    const logLine = document.createElement('div');
+                    logLine.className = 'log-line';
+                    logLine.textContent = event.data;
+                    logContainer.appendChild(logLine);
+                    if (logContainer.scrollHeight - logContainer.scrollTop < logContainer.clientHeight + 200) {
+                        logContainer.scrollTop = logContainer.scrollHeight;
+                    }
+                    applyLogFilter();
+                };
+                logFilter.addEventListener('input', applyLogFilter);
+                function applyLogFilter() {
+                    const filterText = logFilter.value.toLowerCase();
+                    logContainer.querySelectorAll('.log-line').forEach(line => {
+                        line.style.display = line.textContent.toLowerCase().includes(filterText) ? '' : 'none';
+                    });
+                }
+            }
+
             async function fetchWithAuth(url, options = {}) {
-                const headers = { ...options.headers, 'Authorization': `Bearer ${sessionToken}` };
+                const headers = { ...options.headers };
+                headers['Authorization'] = `Bearer ${sessionToken}`;
+                if (options.body) headers['Content-Type'] = 'application/json';
                 const response = await fetch(url, { ...options, headers });
-                if (response.status === 401) { window.location.reload(); }
+                if (response.status === 401) window.location.reload();
                 return response;
             }
 
