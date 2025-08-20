@@ -126,6 +126,23 @@
         .slider.round:before {
             border-radius: 50%;
         }
+        /* Modal Styles */
+        .modal-backdrop {
+            display: none; position: fixed; z-index: 1000; left: 0; top: 0;
+            width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.6);
+            align-items: center; justify-content: center;
+        }
+        .modal-content {
+            background-color: var(--header-bg); margin: auto; padding: 2rem;
+            border: 1px solid var(--border-color); width: 80%; max-width: 500px;
+            border-radius: 8px; position: relative;
+        }
+        .modal-close {
+            color: #aaa; position: absolute; top: 1rem; right: 1.5rem;
+            font-size: 28px; font-weight: bold; cursor: pointer;
+        }
+        .modal-close:hover, .modal-close:focus { color: var(--text-color); }
+        .modal-content form { display: flex; flex-direction: column; gap: 1rem; }
     </style>
 </head>
 <body>
@@ -188,7 +205,7 @@
                     <option value="all">All Types</option>
                     <option value="public">Public</option>
                     <option value="private">Private</option>
-                    <option value="semiprivate">Semiprivate</option>
+                    <option value="semiprivate">Semi-Private</option>
                 </select>
             </div>
             <div id="status-grid" class="status-grid"></div>
@@ -199,6 +216,23 @@
             </div>
         </div>
     </main>
+
+    <div id="settings-modal" class="modal-backdrop">
+        <div class="modal-content">
+            <span class="modal-close">&times;</span>
+            <h2 id="settings-modal-title">Indexer Settings</h2>
+            <p id="settings-modal-desc"></p>
+            <form id="settings-modal-form">
+                <input type="hidden" id="settings-indexer-key">
+                <label for="settings-username">Username</label>
+                <input type="text" id="settings-username" placeholder="Enter username">
+                <label for="settings-password">Password</label>
+                <input type="password" id="settings-password" placeholder="Enter password">
+                <button type="submit">Save Configuration</button>
+            </form>
+             <p id="settings-modal-status" style="text-align:center; margin-top:1rem;"></p>
+        </div>
+    </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
@@ -287,8 +321,11 @@
                         renderCurrentPage();
                     }
                 });
+                
+                // 5. Setup Settings Modal Listeners
+                setupSettingsModal();
 
-                // 5. Load Initial Data
+                // 6. Load Initial Data
                 loadIndexersAndCategories();
                 loadIndexerStatus();
                 setupLogViewer();
@@ -402,6 +439,12 @@
                     const card = document.createElement('div');
                     card.className = 'status-card';
                     card.setAttribute('data-description', indexer.description);
+                    
+                    let settingsButton = '';
+                    if (indexer.type === 'private' || indexer.type === 'semiprivate') {
+                        settingsButton = `<button class="settings-btn" data-key="${key}" title="Settings">⚙️</button>`;
+                    }
+                    
                     card.innerHTML = `
                         <label class="switch">
                             <input type="checkbox" class="enable-switch" data-key="${key}" ${indexer.enabled ? 'checked' : ''}>
@@ -415,6 +458,7 @@
                             <button class="copy-btn" data-key="${key}">
                                 📝 Copy Link
                             </button>
+                            ${settingsButton}
                         </div>
                     `;
                     statusGrid.appendChild(card);
@@ -441,7 +485,7 @@
                 statusGrid.addEventListener('click', async (e) => {
                     const testButton = e.target.closest('.test-btn');
                     const copyButton = e.target.closest('.copy-btn');
-                    const switchInput = e.target.closest('.enable-switch');
+                    const settingsButton = e.target.closest('.settings-btn');
 
                     if (testButton) {
                         const key = testButton.dataset.key;
@@ -461,6 +505,12 @@
                             copyButton.textContent = 'Copied!';
                             setTimeout(() => { copyButton.innerHTML = originalText; }, 2000);
                         });
+                    }
+                    
+                    if (settingsButton) {
+                        const key = settingsButton.dataset.key;
+                        const indexer = indexers[key];
+                        openSettingsModal(key, indexer);
                     }
                 });
 
@@ -511,6 +561,56 @@
                     });
                 }
             }
+            
+            // --- Settings Modal Logic ---
+            function setupSettingsModal() {
+                const modal = document.getElementById('settings-modal');
+                const closeBtn = document.querySelector('.modal-close');
+                const form = document.getElementById('settings-modal-form');
+
+                closeBtn.onclick = () => { modal.style.display = "none"; };
+                window.onclick = (event) => {
+                    if (event.target == modal) {
+                        modal.style.display = "none";
+                    }
+                };
+
+                form.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const key = document.getElementById('settings-indexer-key').value;
+                    const username = document.getElementById('settings-username').value;
+                    const password = document.getElementById('settings-password').value;
+                    const statusEl = document.getElementById('settings-modal-status');
+                    statusEl.textContent = 'Saving...';
+                    
+                    try {
+                        const response = await fetchWithAuth('/api/v1/indexer/config', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ key, config: { username, password } })
+                        });
+                        if (!response.ok) throw new Error('Failed to save configuration.');
+                        
+                        statusEl.textContent = '✅ Saved successfully! Please test the indexer.';
+                        setTimeout(() => { modal.style.display = "none"; }, 2000);
+                        
+                    } catch (error) {
+                         statusEl.textContent = `Error: ${error.message}`;
+                    }
+                });
+            }
+            
+            function openSettingsModal(key, indexer) {
+                const modal = document.getElementById('settings-modal');
+                document.getElementById('settings-modal-title').textContent = `${indexer.name} Settings`;
+                document.getElementById('settings-modal-desc').textContent = indexer.description;
+                document.getElementById('settings-indexer-key').value = key;
+                document.getElementById('settings-username').value = indexer.user_config?.username || '';
+                document.getElementById('settings-password').value = indexer.user_config?.password || '';
+                document.getElementById('settings-modal-status').textContent = '';
+                modal.style.display = 'flex';
+            }
+
 
             // --- RENDER & HELPER FUNCTIONS ---
             function sortResults() {

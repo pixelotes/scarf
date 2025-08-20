@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/json"
 	"encoding/xml"
@@ -54,8 +55,9 @@ func (h *APIHandler) getRateLimiter(indexerKey string) *rate.Limiter {
 
 	if !exists {
 		h.rlMutex.Lock()
+		// Double-check after acquiring the lock
 		if limiter, exists = h.rateLimiters[indexerKey]; !exists {
-			limiter = rate.NewLimiter(rate.Limit(1), 3)
+			limiter = rate.NewLimiter(rate.Limit(1), 3) // 1 request per second, burst of 3
 			h.rateLimiters[indexerKey] = limiter
 		}
 		h.rlMutex.Unlock()
@@ -74,16 +76,18 @@ func (h *APIHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 			totalIndexers++
 		}
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second) // Add a timeout for health checks
+	defer cancel()
 
 	count := 0
 	for key, def := range allIndexers {
 		if !def.Enabled {
 			continue
 		}
-		if count >= 3 {
+		if count >= 3 { // Limit to testing 3 indexers for speed
 			break
 		}
-		if err := h.Manager.Test(key); err == nil {
+		if err := h.Manager.Test(ctx, key); err == nil {
 			healthyIndexers++
 		}
 		count++
@@ -137,6 +141,7 @@ type IndexerDetail struct {
 	Type             string                    `json:"type"`
 	Description      string                    `json:"description"`
 	Enabled          bool                      `json:"enabled"`
+	UserConfig       map[string]string         `json:"user_config,omitempty"`
 	CategoryMappings []indexer.CategoryMapping `json:"category_mappings"`
 	Categories       map[int]string            `json:"categories"`
 }
@@ -158,6 +163,7 @@ func (h *APIHandler) ListIndexers(w http.ResponseWriter, r *http.Request) {
 			Type:             def.Type,
 			Description:      def.Description,
 			Enabled:          def.Enabled,
+			UserConfig:       def.UserConfig,
 			CategoryMappings: def.CategoryMappings,
 			Categories:       cats,
 		}
@@ -171,6 +177,37 @@ func (h *APIHandler) ListIndexers(w http.ResponseWriter, r *http.Request) {
 type ToggleIndexerPayload struct {
 	Key     string `json:"key"`
 	Enabled bool   `json:"enabled"`
+}
+
+// UpdateConfigPayload is the struct for the credential update request
+type UpdateConfigPayload struct {
+	Key    string            `json:"key"`
+	Config map[string]string `json:"config"`
+}
+
+// UpdateIndexerConfig handles updating the user configuration for an indexer.
+func (h *APIHandler) UpdateIndexerConfig(w http.ResponseWriter, r *http.Request) {
+	var payload UpdateConfigPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.Manager.UpdateIndexerUserConfig(payload.Key, payload.Config); err != nil {
+		slog.Error("Failed to update indexer config", "key", payload.Key, "error", err)
+		http.Error(w, "Failed to update indexer configuration", http.StatusInternalServerError)
+		return
+	}
+
+	// Explicitly trigger a reload after saving the configuration.
+	if err := h.Manager.Reload(); err != nil {
+		// Don't fail the request, but log that the reload failed.
+		// The config is saved, and a future reload will pick it up.
+		slog.Error("Failed to reload definitions after config update", "key", payload.Key, "error", err)
+	}
+
+	slog.Info("Successfully updated indexer config and triggered reload", "key", payload.Key)
+	w.WriteHeader(http.StatusOK)
 }
 
 // ToggleIndexer handles enabling or disabling an indexer
@@ -197,6 +234,10 @@ func (h *APIHandler) searchAll(query, category string) ([]indexer.SearchResult, 
 	var wg sync.WaitGroup
 	resultsChan := make(chan []indexer.SearchResult, len(allIndexers))
 
+	// Create a context with a 10-second timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	for key, def := range allIndexers {
 		if !def.Enabled {
 			continue
@@ -209,9 +250,15 @@ func (h *APIHandler) searchAll(query, category string) ([]indexer.SearchResult, 
 				slog.Warn("Rate limit exceeded during searchAll", "indexer", indexerKey)
 				return
 			}
-			results, err := h.Manager.Search(indexerKey, query, category)
+			// Pass the context to the Search method.
+			results, err := h.Manager.Search(ctx, indexerKey, query, category)
 			if err != nil {
-				slog.Warn("Search failed for indexer during searchAll", "indexer", indexerKey, "query", query, "error", err)
+				// We check for the context deadline exceeded error specifically.
+				if err == context.DeadlineExceeded {
+					slog.Warn("Search timed out for indexer", "indexer", indexerKey)
+				} else {
+					slog.Warn("Search failed for indexer during searchAll", "indexer", indexerKey, "query", query, "error", err)
+				}
 				return
 			}
 			if len(results) > 0 {
@@ -226,8 +273,10 @@ func (h *APIHandler) searchAll(query, category string) ([]indexer.SearchResult, 
 	uniqueResults := make(map[string]indexer.SearchResult)
 	for resultSet := range resultsChan {
 		for _, result := range resultSet {
-			if _, exists := uniqueResults[result.DownloadURL]; !exists {
-				uniqueResults[result.DownloadURL] = result
+			// Use a combination of title and size to create a more unique key
+			uniqueKey := fmt.Sprintf("%s-%d", result.Title, result.Size)
+			if _, exists := uniqueResults[uniqueKey]; !exists {
+				uniqueResults[uniqueKey] = result
 			}
 		}
 	}
@@ -260,6 +309,8 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 	var results []indexer.SearchResult
 	var err error
 
+	ctx := r.Context()
+
 	if indexerKey == "all" {
 		results, err = h.searchAll(query, category)
 	} else {
@@ -268,7 +319,7 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error": "Rate limit exceeded, please try again later"}`, http.StatusTooManyRequests)
 			return
 		}
-		results, err = h.Manager.Search(indexerKey, query, category)
+		results, err = h.Manager.Search(ctx, indexerKey, query, category)
 	}
 
 	if err != nil {
@@ -293,7 +344,7 @@ func (h *APIHandler) TestIndexer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.Manager.Test(key)
+	err := h.Manager.Test(r.Context(), key)
 	if err != nil {
 		slog.Warn("Indexer test failed", "indexer", key, "error", err)
 		json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": err.Error()})
@@ -328,7 +379,7 @@ func (h *APIHandler) TorznabAPI(w http.ResponseWriter, r *http.Request) {
 	switch torznabType {
 	case "caps":
 		h.handleCaps(w, r, indexerKey)
-	case "search":
+	case "search", "tv-search", "movie-search": // Handle different search types
 		h.handleSearch(w, r, indexerKey)
 	default:
 		http.Error(w, fmt.Sprintf("Unsupported Torznab function: %s", torznabType), http.StatusBadRequest)
@@ -362,11 +413,11 @@ func (h *APIHandler) handleCaps(w http.ResponseWriter, r *http.Request, indexerK
 			},
 			TvSearch: TorznabSearchType{
 				Available:       "yes",
-				SupportedParams: "q,cat",
+				SupportedParams: "q,cat,season,ep",
 			},
 			MovieSearch: TorznabSearchType{
 				Available:       "yes",
-				SupportedParams: "q,cat",
+				SupportedParams: "q,cat,imdbid",
 			},
 		},
 		Categories: TorznabCategories{
@@ -450,7 +501,7 @@ func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexe
 		return
 	}
 
-	results, err := h.Manager.Search(indexerKey, query, category)
+	results, err := h.Manager.Search(r.Context(), indexerKey, query, category)
 	if err != nil {
 		slog.Error("Torznab search failed", "indexer", indexerKey, "query", query, "error", err)
 		http.Error(w, "Failed to search indexer.", http.StatusInternalServerError)

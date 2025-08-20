@@ -26,7 +26,7 @@ func main() {
 	port := config.GetEnv("APP_PORT", "8080")
 	defPath := config.GetEnv("DEFINITIONS_PATH", "./definitions")
 	cacheTTL := config.GetEnvAsDuration("CACHE_TTL", 15*time.Minute)
-	dbPath := config.GetEnv("DB_PATH", "./indexer-cache.db")
+	dbPath := config.GetEnv("DB_PATH", "./data/indexer-cache.db")
 	webUIEnabled := config.GetEnvAsBool("WEB_UI", true)
 	debugMode := config.GetEnvAsBool("DEBUG", false)
 
@@ -65,21 +65,24 @@ func main() {
 	updateScheduledJobs := func() {
 		slog.Info("Updating scheduled jobs after indexer reload...")
 
-		// Stop existing cron jobs
-		c.Stop()
-
-		// Create a new cron scheduler
+		// Stop existing cron jobs and create a new scheduler
+		if c != nil {
+			c.Stop()
+		}
 		c = cron.New()
 
 		// Re-add jobs for all indexers with schedules
 		for key, def := range idxManager.GetAllIndexers() {
-			if def.Schedule == "" {
+			if def.Schedule == "" || !def.Enabled {
 				continue
 			}
 			indexerKey, indexerDef := key, def
 			_, err := c.AddFunc(def.Schedule, func() {
 				slog.Info("Scheduler: Running job", "indexer", indexerDef.Name)
-				results, err := idxManager.Search(indexerKey, "", "")
+				// Create a new context for the background job.
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute) // Give scheduled jobs a longer timeout
+				defer cancel()
+				results, err := idxManager.Search(ctx, indexerKey, "", "")
 				if err != nil {
 					slog.Error("Scheduler: Failed to fetch latest", "indexer", indexerDef.Name, "error", err)
 					return
@@ -148,6 +151,7 @@ func main() {
 		r.Get("/api/v1/test_indexer", apiHandler.TestIndexer)
 		r.Get("/api/v1/flexget_key", apiHandler.GetFlexgetAPIKey)
 		r.Post("/api/v1/indexer/toggle", apiHandler.ToggleIndexer)
+		r.Post("/api/v1/indexer/config", apiHandler.UpdateIndexerConfig) // New route
 		r.Get("/api/v1/logs", logger.WebSocketHandler)
 	})
 

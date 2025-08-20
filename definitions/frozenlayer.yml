@@ -1,0 +1,48 @@
+key: "frozenlayer"
+name: "Frozen Layer"
+description: "Frozen Layer is a SPANISH Public torrent site focused on ANIME"
+type: "public"
+enabled: true
+language: "es-ES"
+schedule: "@hourly"
+
+search:
+  type: "html"
+  # This URL searches across all categories by default.
+  urls:
+    - "https://www.frozen-layer.com/buscar/descargas/todos/{{.Query}}?search=Buscar"
+
+  results:
+    # Selector for each row in the results table that has a magnet link.
+    rows_selector: "table#descargas > tbody > tr:has(td > a[href^='magnet:?'])"
+    fields:
+      title:
+        selector: "td.tit a"
+      # Scarf prioritizes magnet links when available.
+      download_url:
+        selector: 'td:nth-child(1) a[href^="magnet:?"]@href'
+      size:
+        selector: "td:nth-child(6)"
+      seeders:
+        selector: "td:nth-child(7)"
+      leechers:
+        selector: "td:nth-child(8)"
+      # Scarf's fuzzy date parser will handle the various date formats.
+      publish_date:
+        selector: "td.fecha"
+
+category_mappings:
+  - indexer_cat: "Anime"
+    torznab_cat: 5080
+  - indexer_cat: "Manga"
+    torznab_cat: 7030 # Books/Comics
+  - indexer_cat: "Dorama"
+    torznab_cat: 5000 # TV
+  - indexer_cat: "Videojuego"
+    torznab_cat: 4050 # PC/Games
+  - indexer_cat: "Bso"
+    torznab_cat: 3000 # Audio
+  - indexer_cat: "Pv"
+    torznab_cat: 3020 # Audio/Video
+  - indexer_cat: "Otros"
+    torznab_cat: 8000 # Other
