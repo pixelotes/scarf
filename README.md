@@ -67,6 +67,7 @@ Scarf is configured using environment variables. Here are the most important one
 | `UI_PASSWORD`     | Password to protect the web UI. **Set this!** | `password`                   |
 | `FLEXGET_API_KEY` | The API key for accessing the Torznab feed.                                 | (auto-generated 16 chars)    |
 | `JWT_SECRET`      | A secret key for signing session tokens.                                    | (auto-generated 32 chars)    |
+| `FLARESOLVERR_URL` | The url pointing to the FlareSolverr service |  |
 
 ---
 
@@ -153,5 +154,6 @@ For more complex sites, you can use the details_url and download_selector fields
   - [X] Add support for trackers with user / password authentication
   - [X] Add dynamic config popup based on tracker-defined settings
   - [ ] Add support for sending custom headers
+- [X] Add support for FlareSolverr (untested)
 - [ ] Add specific search modes (tv, movie, etc.)
-- [ ] Add support for FlareSolverr
+
