@@ -46,6 +46,7 @@ type LoginDefinition struct {
 	URL          string            `yaml:"url"`
 	Method       string            `yaml:"method"`
 	Body         map[string]string `yaml:"body"`
+	Headers      map[string]string `yaml:"headers,omitempty"` // Added this line
 	SuccessCheck struct {
 		Contains string `yaml:"contains"`
 	} `yaml:"success_check"`
@@ -70,6 +71,7 @@ type SearchDefinition struct {
 	Body        string            `yaml:"body"`
 	ContentType string            `yaml:"content_type"`
 	Params      map[string]string `yaml:"params"`
+	Headers     map[string]string `yaml:"headers,omitempty"` // Added this line
 	Results     struct {
 		Path             string          `yaml:"path"`
 		SubPath          string          `yaml:"sub_path"`

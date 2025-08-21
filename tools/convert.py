@@ -99,6 +99,23 @@ def convert_jackett_to_scarf(jackett_data):
         }
     }
     
+    # --- NEW: Convert Headers ---
+    jackett_headers = search_info.get('headers')
+    if jackett_headers:
+        scarf_headers = {}
+        for key, value in jackett_headers.items():
+            header_value = ''
+            if isinstance(value, list) and len(value) > 0:
+                header_value = value[0]
+            elif isinstance(value, str):
+                header_value = value
+            
+            # Convert Jackett's template syntax to Scarf's Go template syntax
+            header_value = header_value.replace(' .Keywords ', '.Query').replace(' .Config.', '.Config.')
+            scarf_headers[key] = header_value
+        scarf_search['headers'] = scarf_headers
+
+
     base_url = jackett_data.get('links', [''])[0].rstrip('/')
     search_path_info = search_info.get('paths', [{}])[0]
     search_path = search_path_info.get('path', '').lstrip('/')

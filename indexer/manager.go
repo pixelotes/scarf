@@ -173,7 +173,6 @@ func (m *Manager) executeFlareSolverrRequest(ctx context.Context, payload map[st
 		return nil, fmt.Errorf("FlareSolverr error: %s", flareResp.Message)
 	}
 
-	// ADD THIS LINE FOR DEBUGGING
 	slog.Debug("Full response from FlareSolverr", "html_body", flareResp.Solution.Response)
 
 	// Handle session creation response
@@ -580,6 +579,13 @@ func (m *Manager) authenticate(def *Definition) error {
 			return err_req
 		}
 		req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+		// Add custom headers for login, only if they are defined
+		if def.Login.Headers != nil {
+			for key, valTpl := range def.Login.Headers {
+				val, _ := m.executeTemplate(valTpl, def.UserConfig)
+				req.Header.Set(key, val)
+			}
+		}
 		resp, err = client.Do(req)
 	}
 
@@ -621,7 +627,7 @@ func (m *Manager) Search(ctx context.Context, indexerKey, query, category string
 		return nil, fmt.Errorf("indexer '%s' not found", indexerKey)
 	}
 
-	if !def.Enabled {
+	if !bool(def.Enabled) {
 		return nil, fmt.Errorf("indexer '%s' is disabled", indexerKey)
 	}
 
@@ -725,6 +731,13 @@ func (m *Manager) Search(ctx context.Context, indexerKey, query, category string
 					contentType = "application/x-www-form-urlencoded"
 				}
 				req.Header.Set("Content-Type", contentType)
+			}
+			// Add custom search headers, only if they are defined
+			if def.Search.Headers != nil {
+				for key, valTpl := range def.Search.Headers {
+					val, _ := m.executeTemplate(valTpl, tplData)
+					req.Header.Set(key, val)
+				}
 			}
 			resp, err = client.Do(req)
 		}
@@ -841,6 +854,11 @@ func (m *Manager) fetchDownloadLinkFromDetails(ctx context.Context, detailURL st
 	var resp *http.Response
 	var err error
 	useFlareSolverr := def.UserConfig["use_flaresolverr"] == "true"
+	tplData := struct { // Define tplData for header templating
+		Query    string
+		Config   map[string]string
+		Category string
+	}{"", def.UserConfig, ""}
 
 	if useFlareSolverr {
 		m.mu.RLock()
@@ -857,6 +875,13 @@ func (m *Manager) fetchDownloadLinkFromDetails(ctx context.Context, detailURL st
 		req, err_req := http.NewRequestWithContext(ctx, "GET", detailURL, nil)
 		if err_req != nil {
 			return "", err_req
+		}
+		// Add custom search headers to details page request, only if they are defined
+		if def.Search.Headers != nil {
+			for key, valTpl := range def.Search.Headers {
+				val, _ := m.executeTemplate(valTpl, tplData)
+				req.Header.Set(key, val)
+			}
 		}
 		resp, err = client.Do(req)
 	}
