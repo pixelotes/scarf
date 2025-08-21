@@ -24,6 +24,7 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/fsnotify/fsnotify"
+	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
 	"golang.org/x/net/publicsuffix"
 	"gopkg.in/yaml.v3"
@@ -38,15 +39,16 @@ var (
 
 // Manager holds all loaded indexer definitions and authenticated clients
 type Manager struct {
-	Indexers           map[string]*Definition
-	authClients        map[string]*http.Client
-	defaultClient      *http.Client
-	flaresolverrClient *http.Client
-	flaresolverrURL    string
-	definitionsPath    string
-	watcher            *fsnotify.Watcher
-	reloadCallback     func()
-	mu                 sync.RWMutex
+	Indexers             map[string]*Definition
+	authClients          map[string]*http.Client
+	defaultClient        *http.Client
+	flaresolverrClient   *http.Client
+	flaresolverrURL      string
+	flaresolverrSessions map[string]string // New: Store for FlareSolverr sessions
+	definitionsPath      string
+	watcher              *fsnotify.Watcher
+	reloadCallback       func()
+	mu                   sync.RWMutex
 }
 
 // newHttpClient creates a new HTTP client with our logging transport and custom TLS settings.
@@ -91,13 +93,14 @@ func NewManager(definitionsPath string) (*Manager, error) {
 	}
 
 	m := &Manager{
-		Indexers:           make(map[string]*Definition),
-		authClients:        make(map[string]*http.Client),
-		defaultClient:      newHttpClient(nil),
-		flaresolverrClient: flaresolverrClient,
-		flaresolverrURL:    flaresolverrURL,
-		definitionsPath:    definitionsPath,
-		watcher:            watcher,
+		Indexers:             make(map[string]*Definition),
+		authClients:          make(map[string]*http.Client),
+		defaultClient:        newHttpClient(nil),
+		flaresolverrClient:   flaresolverrClient,
+		flaresolverrURL:      flaresolverrURL,
+		flaresolverrSessions: make(map[string]string),
+		definitionsPath:      definitionsPath,
+		watcher:              watcher,
 	}
 
 	if err := m.Reload(); err != nil {
@@ -114,35 +117,19 @@ func NewManager(definitionsPath string) (*Manager, error) {
 }
 
 // executeFlareSolverrRequest sends a request through the FlareSolverr proxy.
-func (m *Manager) executeFlareSolverrRequest(ctx context.Context, method, urlStr string, body io.Reader) (*http.Response, error) {
+func (m *Manager) executeFlareSolverrRequest(ctx context.Context, payload map[string]interface{}) (*http.Response, error) {
 	if m.flaresolverrClient == nil || m.flaresolverrURL == "" {
 		return nil, fmt.Errorf("FlareSolverr is not configured")
 	}
 
-	slog.Debug("Executing request via FlareSolverr", "method", method, "url", urlStr)
-
-	// Read the body into a string to pass to FlareSolverr
-	var bodyString string
-	if body != nil {
-		bodyBytes, err := io.ReadAll(body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read request body: %w", err)
-		}
-		bodyString = string(bodyBytes)
-	}
-
-	flareReqData := map[string]interface{}{
-		"cmd":      fmt.Sprintf("request.%s", strings.ToLower(method)),
-		"url":      urlStr,
-		"postData": bodyString,
-	}
-
-	jsonReq, err := json.Marshal(flareReqData)
+	jsonReq, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal FlareSolverr request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", m.flaresolverrURL, bytes.NewBuffer(jsonReq))
+	flareSolverrEndpoint := strings.TrimRight(m.flaresolverrURL, "/") + "/v1"
+
+	req, err := http.NewRequestWithContext(ctx, "POST", flareSolverrEndpoint, bytes.NewBuffer(jsonReq))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create FlareSolverr request: %w", err)
 	}
@@ -160,17 +147,46 @@ func (m *Manager) executeFlareSolverrRequest(ctx context.Context, method, urlStr
 			Status   int               `json:"status"`
 			Headers  map[string]string `json:"headers"`
 			Response string            `json:"response"`
+			Cookies  []struct {
+				Name  string `json:"name"`
+				Value string `json:"value"`
+			} `json:"cookies"`
 		} `json:"solution"`
+		Status  string `json:"status"`
+		Session string `json:"session"`
 		Message string `json:"message"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&flareResp); err != nil {
-		return nil, fmt.Errorf("failed to decode FlareSolverr response: %w", err)
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read FlareSolverr response body: %w", err)
 	}
 	resp.Body.Close()
 
-	if flareResp.Message != "" && !strings.Contains(flareResp.Message, "OK") {
+	if err := json.Unmarshal(bodyBytes, &flareResp); err != nil {
+		slog.Error("Failed to decode FlareSolverr JSON response", "body", string(bodyBytes))
+		return nil, fmt.Errorf("failed to decode FlareSolverr response: %w", err)
+	}
+
+	// Check the 'status' field for success, not the 'message' field.
+	if flareResp.Status != "ok" {
 		return nil, fmt.Errorf("FlareSolverr error: %s", flareResp.Message)
+	}
+
+	// ADD THIS LINE FOR DEBUGGING
+	slog.Debug("Full response from FlareSolverr", "html_body", flareResp.Solution.Response)
+
+	// Handle session creation response
+	if cmd, ok := payload["cmd"].(string); ok && cmd == "sessions.create" {
+		if flareResp.Session == "" {
+			return nil, fmt.Errorf("FlareSolverr did not return a session ID")
+		}
+		// Store the session ID
+		if sessionKey, ok := payload["session"].(string); ok {
+			m.mu.Lock()
+			m.flaresolverrSessions[sessionKey] = flareResp.Session
+			m.mu.Unlock()
+		}
 	}
 
 	// Reconstruct the HTTP response from the FlareSolverr solution
@@ -183,7 +199,63 @@ func (m *Manager) executeFlareSolverrRequest(ctx context.Context, method, urlStr
 		httpResp.Header.Set(k, v)
 	}
 
+	// If using an authenticated client, update its cookie jar
+	if sessionKey, ok := payload["session"].(string); ok {
+		if client, ok := m.authClients[sessionKey]; ok {
+			if u, err := url.Parse(flareResp.Solution.URL); err == nil {
+				var cookies []*http.Cookie
+				for _, c := range flareResp.Solution.Cookies {
+					cookies = append(cookies, &http.Cookie{Name: c.Name, Value: c.Value})
+				}
+				client.Jar.SetCookies(u, cookies)
+			}
+		}
+	}
+
 	return httpResp, nil
+}
+
+// ensureFlareSolverrSession creates and warms up a FlareSolverr session if one doesn't exist.
+func (m *Manager) ensureFlareSolverrSession(ctx context.Context, def *Definition) error {
+	m.mu.RLock()
+	_, exists := m.flaresolverrSessions[def.Key]
+	m.mu.RUnlock()
+
+	if exists {
+		return nil // Session already exists
+	}
+
+	slog.Info("Creating new FlareSolverr session", "indexer", def.Name)
+	sessionID := uuid.New().String()
+
+	// 1. Create the session
+	createPayload := map[string]interface{}{
+		"cmd":     "sessions.create",
+		"session": sessionID,
+	}
+	_, err := m.executeFlareSolverrRequest(ctx, createPayload)
+	if err != nil {
+		return fmt.Errorf("failed to create FlareSolverr session: %w", err)
+	}
+
+	// 2. Warm up the session by visiting the login page to solve initial challenges
+	slog.Debug("Warming up FlareSolverr session", "indexer", def.Name, "url", def.Login.URL)
+	getPayload := map[string]interface{}{
+		"cmd":     "request.get",
+		"url":     def.Login.URL,
+		"session": sessionID,
+	}
+	resp, err := m.executeFlareSolverrRequest(ctx, getPayload)
+	if err != nil {
+		return fmt.Errorf("failed to warm up FlareSolverr session: %w", err)
+	}
+	resp.Body.Close()
+
+	m.mu.Lock()
+	m.flaresolverrSessions[def.Key] = sessionID
+	m.mu.Unlock()
+
+	return nil
 }
 
 // GetIndexer safely retrieves an indexer definition by key.
@@ -201,6 +273,7 @@ func (m *Manager) Reload() error {
 	slog.Info("Reloading all indexer definitions...")
 	m.Indexers = make(map[string]*Definition)
 	m.authClients = make(map[string]*http.Client)
+	// Do not clear FlareSolverr sessions on reload, they might still be valid
 
 	err := filepath.Walk(m.definitionsPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -304,6 +377,9 @@ func (m *Manager) SetReloadCallback(cb func()) {
 
 // Close stops the file watcher
 func (m *Manager) Close() error {
+	// Here you would also destroy any active FlareSolverr sessions
+	// For simplicity, this is omitted, but in a production app, you'd loop through
+	// m.flaresolverrSessions and send a 'sessions.destroy' command for each.
 	return m.watcher.Close()
 }
 
@@ -455,16 +531,27 @@ func updateNodeValueByKey(node *yaml.Node, key, value string) {
 func (m *Manager) authenticate(def *Definition) error {
 	key := def.Key
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if _, ok := m.authClients[key]; ok {
+		m.mu.Unlock()
 		return nil
 	}
+	m.mu.Unlock()
 
 	slog.Info("Authenticating", "indexer", def.Name)
+	ctx := context.Background()
+
+	useFlareSolverr := def.UserConfig["use_flaresolverr"] == "true"
+	if useFlareSolverr {
+		if err := m.ensureFlareSolverrSession(ctx, def); err != nil {
+			return err
+		}
+	}
 
 	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 	client := newHttpClient(jar)
+	m.mu.Lock()
+	m.authClients[key] = client
+	m.mu.Unlock()
 
 	form := url.Values{}
 	for k, vTpl := range def.Login.Body {
@@ -472,12 +559,21 @@ func (m *Manager) authenticate(def *Definition) error {
 		form.Set(k, val)
 	}
 
-	useFlareSolverr := def.UserConfig["use_flaresolverr"] == "true"
 	var resp *http.Response
 	var err error
 
 	if useFlareSolverr {
-		resp, err = m.executeFlareSolverrRequest(context.Background(), def.Login.Method, def.Login.URL, strings.NewReader(form.Encode()))
+		m.mu.RLock()
+		sessionID := m.flaresolverrSessions[key]
+		m.mu.RUnlock()
+
+		payload := map[string]interface{}{
+			"cmd":      "request.post",
+			"url":      def.Login.URL,
+			"postData": form.Encode(),
+			"session":  sessionID,
+		}
+		resp, err = m.executeFlareSolverrRequest(ctx, payload)
 	} else {
 		req, err_req := http.NewRequest(def.Login.Method, def.Login.URL, strings.NewReader(form.Encode()))
 		if err_req != nil {
@@ -494,11 +590,11 @@ func (m *Manager) authenticate(def *Definition) error {
 
 	body, _ := io.ReadAll(resp.Body)
 	if def.Login.SuccessCheck.Contains != "" && !strings.Contains(string(body), def.Login.SuccessCheck.Contains) {
+		slog.Warn("Login failed, response did not contain success string", "indexer", def.Name, "expected", def.Login.SuccessCheck.Contains)
 		return fmt.Errorf("login success check failed; did not find '%s' in response", def.Login.SuccessCheck.Contains)
 	}
 
 	slog.Info("Successfully authenticated", "indexer", def.Name)
-	m.authClients[key] = client
 	return nil
 }
 
@@ -530,13 +626,8 @@ func (m *Manager) Search(ctx context.Context, indexerKey, query, category string
 	}
 
 	if def.Login.URL != "" {
-		m.mu.RLock()
-		_, authenticated := m.authClients[indexerKey]
-		m.mu.RUnlock()
-		if !authenticated {
-			if err := m.authenticate(def); err != nil {
-				return nil, fmt.Errorf("authentication failed for indexer '%s': %w", def.Name, err)
-			}
+		if err := m.authenticate(def); err != nil {
+			return nil, fmt.Errorf("authentication failed for indexer '%s': %w", def.Name, err)
 		}
 	}
 
@@ -576,7 +667,7 @@ func (m *Manager) Search(ctx context.Context, indexerKey, query, category string
 		method = strings.ToUpper(method)
 
 		var resp *http.Response
-		var reqBody io.Reader
+		var reqBody string
 
 		if method == "POST" {
 			bodyTpl := def.Search.Body
@@ -585,7 +676,7 @@ func (m *Manager) Search(ctx context.Context, indexerKey, query, category string
 				lastErr = fmt.Errorf("invalid body template: %w", err)
 				continue
 			}
-			reqBody = strings.NewReader(bodyString)
+			reqBody = bodyString
 		} else { // GET
 			u, _ := url.Parse(baseURL)
 			q := u.Query()
@@ -602,9 +693,28 @@ func (m *Manager) Search(ctx context.Context, indexerKey, query, category string
 		}
 
 		if useFlareSolverr {
-			resp, err = m.executeFlareSolverrRequest(ctx, method, baseURL, reqBody)
+			if def.Login.URL != "" { // Ensure session exists for private trackers
+				if err := m.ensureFlareSolverrSession(ctx, def); err != nil {
+					return nil, err
+				}
+			}
+
+			m.mu.RLock()
+			sessionID := m.flaresolverrSessions[def.Key]
+			m.mu.RUnlock()
+
+			payload := map[string]interface{}{
+				"cmd":     fmt.Sprintf("request.%s", strings.ToLower(method)),
+				"url":     baseURL,
+				"session": sessionID,
+			}
+			if method == "POST" {
+				payload["postData"] = reqBody
+			}
+			resp, err = m.executeFlareSolverrRequest(ctx, payload)
+
 		} else {
-			req, err_req := http.NewRequestWithContext(ctx, method, baseURL, reqBody)
+			req, err_req := http.NewRequestWithContext(ctx, method, baseURL, strings.NewReader(reqBody))
 			if err_req != nil {
 				lastErr = err_req
 				continue
@@ -700,7 +810,7 @@ func (m *Manager) parseHTMLResults(ctx context.Context, body io.Reader, def *Def
 			go func(searchResult SearchResult, detailURL string) {
 				defer wg.Done()
 				downloadSelector := Selector{Selector: def.Search.Results.DownloadSelector}
-				downloadURL, err := m.fetchDownloadLinkFromDetails(ctx, detailURL, downloadSelector, def.UserConfig["use_flaresolverr"] == "true")
+				downloadURL, err := m.fetchDownloadLinkFromDetails(ctx, detailURL, downloadSelector, def)
 				if err != nil {
 					slog.Warn("Failed to fetch details page", "url", detailURL, "error", err)
 					return
@@ -727,14 +837,23 @@ func (m *Manager) parseHTMLResults(ctx context.Context, body io.Reader, def *Def
 
 	return results, nil
 }
-func (m *Manager) fetchDownloadLinkFromDetails(ctx context.Context, detailURL string, selector Selector, useFlareSolverr bool) (string, error) {
+func (m *Manager) fetchDownloadLinkFromDetails(ctx context.Context, detailURL string, selector Selector, def *Definition) (string, error) {
 	var resp *http.Response
 	var err error
+	useFlareSolverr := def.UserConfig["use_flaresolverr"] == "true"
 
 	if useFlareSolverr {
-		resp, err = m.executeFlareSolverrRequest(ctx, "GET", detailURL, nil)
+		m.mu.RLock()
+		sessionID := m.flaresolverrSessions[def.Key]
+		m.mu.RUnlock()
+		payload := map[string]interface{}{
+			"cmd":     "request.get",
+			"url":     detailURL,
+			"session": sessionID,
+		}
+		resp, err = m.executeFlareSolverrRequest(ctx, payload)
 	} else {
-		client := m.getClient("")
+		client := m.getClient(def.Key)
 		req, err_req := http.NewRequestWithContext(ctx, "GET", detailURL, nil)
 		if err_req != nil {
 			return "", err_req

@@ -1,0 +1,30 @@
+key: 0magnet
+name: 0Magnet
+description: "ØMagnet is a CHINESE Public tracker for Asian 3X (JAV)"
+type: public
+enabled: "false"
+language: en-US
+schedule: '@hourly'
+settings:
+  - name: use_flaresolverr
+    type: checkbox
+    label: Use FlareSolverr
+    default: 'false'
+search:
+  type: html
+  urls:
+    # Corrected the URL to handle queries properly
+    - "https://13mag.net/search?q={{.Query}}"
+  params: {}
+  results:
+    rows_selector: "table > tbody > tr:has(td)"
+    # New selector to find the magnet link on the details page
+    download_selector: "input#input-magnet@value"
+    fields:
+      title:
+        selector: "a"
+      # This points to the details page for the second step
+      details_url:
+        selector: "a@href"
+      size:
+        selector: "td.td-size"

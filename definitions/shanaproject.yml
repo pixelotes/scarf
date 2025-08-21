@@ -2,14 +2,14 @@ key: "shanaproject"
 name: "Shana Project"
 description: "Shana Project is a Public torrent site for ANIME"
 type: "public"
-enabled: false
+enabled: true
 language: "en-US"
 schedule: "@hourly"
 settings:
-- name: use_flaresolverr
-  type: checkbox
-  label: Use FlareSolverr
-  default: 'false'
+  - name: use_flaresolverr
+    type: checkbox
+    label: Use FlareSolverr
+    default: 'false'
 search:
   type: "html"
   urls:
