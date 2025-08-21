@@ -16,7 +16,7 @@ RUN go mod download
 COPY . .
 
 # Build the application, creating a static binary and stripping debug info to reduce size.
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /app/go-indexer .
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /app/scarf .
 
 # --- Stage 2: Final Image ---
 # Use the minimal Alpine base image.
@@ -32,7 +32,7 @@ WORKDIR /app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
 # Copy the compiled binary from the builder stage
-COPY --from=builder /app/go-indexer .
+COPY --from=builder /app/scarf .
 
 # Copy the tracker definitions and the web UI assets
 COPY definitions ./definitions
@@ -50,4 +50,4 @@ USER appuser
 EXPOSE 8080
 
 # The command to run when the container starts
-CMD ["./go-indexer"]
+CMD ["./scarf"]

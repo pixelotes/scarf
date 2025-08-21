@@ -116,6 +116,21 @@ func NewManager(definitionsPath string) (*Manager, error) {
 	return m, nil
 }
 
+// parseCookieString converts a standard cookie string into the format FlareSolverr expects.
+func parseCookieString(cookieStr string) []map[string]string {
+	var cookies []map[string]string
+	parts := strings.Split(cookieStr, ";")
+	for _, part := range parts {
+		if cookieParts := strings.SplitN(strings.TrimSpace(part), "=", 2); len(cookieParts) == 2 {
+			cookies = append(cookies, map[string]string{
+				"name":  cookieParts[0],
+				"value": cookieParts[1],
+			})
+		}
+	}
+	return cookies
+}
+
 // executeFlareSolverrRequest sends a request through the FlareSolverr proxy.
 func (m *Manager) executeFlareSolverrRequest(ctx context.Context, payload map[string]interface{}) (*http.Response, error) {
 	if m.flaresolverrClient == nil || m.flaresolverrURL == "" {
@@ -232,6 +247,11 @@ func (m *Manager) ensureFlareSolverrSession(ctx context.Context, def *Definition
 		"cmd":     "sessions.create",
 		"session": sessionID,
 	}
+	// Add cookies to session creation if they are defined
+	if cookie, ok := def.UserConfig["cookie"]; ok && cookie != "" {
+		createPayload["cookies"] = parseCookieString(cookie)
+	}
+
 	_, err := m.executeFlareSolverrRequest(ctx, createPayload)
 	if err != nil {
 		return fmt.Errorf("failed to create FlareSolverr session: %w", err)
@@ -572,6 +592,10 @@ func (m *Manager) authenticate(def *Definition) error {
 			"postData": form.Encode(),
 			"session":  sessionID,
 		}
+		// Add cookies if they are defined in the settings
+		if cookie, ok := def.UserConfig["cookie"]; ok && cookie != "" {
+			payload["cookies"] = parseCookieString(cookie)
+		}
 		resp, err = m.executeFlareSolverrRequest(ctx, payload)
 	} else {
 		req, err_req := http.NewRequest(def.Login.Method, def.Login.URL, strings.NewReader(form.Encode()))
@@ -716,6 +740,10 @@ func (m *Manager) Search(ctx context.Context, indexerKey, query, category string
 			}
 			if method == "POST" {
 				payload["postData"] = reqBody
+			}
+			// Add cookies if they are defined in the settings
+			if cookie, ok := def.UserConfig["cookie"]; ok && cookie != "" {
+				payload["cookies"] = parseCookieString(cookie)
 			}
 			resp, err = m.executeFlareSolverrRequest(ctx, payload)
 
@@ -868,6 +896,10 @@ func (m *Manager) fetchDownloadLinkFromDetails(ctx context.Context, detailURL st
 			"cmd":     "request.get",
 			"url":     detailURL,
 			"session": sessionID,
+		}
+		// Add cookies if they are defined in the settings
+		if cookie, ok := def.UserConfig["cookie"]; ok && cookie != "" {
+			payload["cookies"] = parseCookieString(cookie)
 		}
 		resp, err = m.executeFlareSolverrRequest(ctx, payload)
 	} else {
