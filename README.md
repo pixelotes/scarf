@@ -153,7 +153,7 @@ For more complex sites, you can use the details_url and download_selector fields
 - [X] Add support for private trackers
   - [X] Add support for trackers with user / password authentication
   - [X] Add dynamic config popup based on tracker-defined settings
-  - [ ] Add support for sending custom headers
+  - [X] Add support for sending custom headers
 - [X] Add support for FlareSolverr (untested)
 - [ ] Add specific search modes (tv, movie, etc.)
 
