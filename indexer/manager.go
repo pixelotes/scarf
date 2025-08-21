@@ -485,7 +485,7 @@ func (m *Manager) ToggleIndexerEnabled(key string, enabled bool) error {
 		return fmt.Errorf("could not write definition file: %w", err)
 	}
 
-	def.Enabled = enabled
+	def.Enabled = Bool(enabled)
 	return nil
 }
 

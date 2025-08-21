@@ -163,9 +163,9 @@ func (h *APIHandler) ListIndexers(w http.ResponseWriter, r *http.Request) {
 			Name:             def.Name,
 			Type:             def.Type,
 			Description:      def.Description,
-			Enabled:          def.Enabled,
-			Settings:         def.Settings,   // Pass the form definition to the UI
-			UserConfig:       def.UserConfig, // Pass the current values to the UI
+			Enabled:          bool(def.Enabled), // Corrected this line
+			Settings:         def.Settings,      // Pass the form definition to the UI
+			UserConfig:       def.UserConfig,    // Pass the current values to the UI
 			CategoryMappings: def.CategoryMappings,
 			Categories:       cats,
 		}

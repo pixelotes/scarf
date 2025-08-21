@@ -1,6 +1,39 @@
 package indexer
 
-import "time"
+import (
+	"strconv"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Bool is a custom boolean type to handle unmarshaling from string or bool.
+type Bool bool
+
+// UnmarshalYAML implements the yaml.Unmarshaler interface.
+func (b *Bool) UnmarshalYAML(value *yaml.Node) error {
+	var val bool
+	var err error
+
+	// Try to unmarshal as a boolean first
+	if err = value.Decode(&val); err == nil {
+		*b = Bool(val)
+		return nil
+	}
+
+	// If that fails, try to unmarshal as a string and parse it
+	var s string
+	if err = value.Decode(&s); err == nil {
+		parsedBool, parseErr := strconv.ParseBool(s)
+		if parseErr == nil {
+			*b = Bool(parsedBool)
+			return nil
+		}
+		return parseErr
+	}
+
+	return err
+}
 
 // Selector defines how to extract a piece of data, with an optional removal instruction.
 type Selector struct {
@@ -60,7 +93,7 @@ type Definition struct {
 	Key              string            `yaml:"key" json:"-"`
 	Name             string            `yaml:"name" json:"name"`
 	Type             string            `yaml:"type" json:"type"`
-	Enabled          bool              `yaml:"enabled" json:"enabled"`
+	Enabled          Bool              `yaml:"enabled" json:"enabled"`
 	Description      string            `yaml:"description" json:"-"`
 	Language         string            `yaml:"language" json:"-"`
 	Schedule         string            `yaml:"schedule" json:"-"`
