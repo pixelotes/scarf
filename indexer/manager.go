@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"go-indexer/config"
 	"io"
@@ -37,13 +38,15 @@ var (
 
 // Manager holds all loaded indexer definitions and authenticated clients
 type Manager struct {
-	Indexers        map[string]*Definition
-	authClients     map[string]*http.Client
-	defaultClient   *http.Client
-	definitionsPath string
-	watcher         *fsnotify.Watcher
-	reloadCallback  func()
-	mu              sync.RWMutex
+	Indexers           map[string]*Definition
+	authClients        map[string]*http.Client
+	defaultClient      *http.Client
+	flaresolverrClient *http.Client
+	flaresolverrURL    string
+	definitionsPath    string
+	watcher            *fsnotify.Watcher
+	reloadCallback     func()
+	mu                 sync.RWMutex
 }
 
 // newHttpClient creates a new HTTP client with our logging transport and custom TLS settings.
@@ -80,12 +83,21 @@ func NewManager(definitionsPath string) (*Manager, error) {
 		return nil, fmt.Errorf("failed to create file watcher: %w", err)
 	}
 
+	flaresolverrURL := config.GetEnv("FLARESOLVERR_URL", "")
+	var flaresolverrClient *http.Client
+	if flaresolverrURL != "" {
+		slog.Info("FlareSolverr is configured", "url", flaresolverrURL)
+		flaresolverrClient = &http.Client{Timeout: 2 * time.Minute} // Longer timeout for FlareSolverr
+	}
+
 	m := &Manager{
-		Indexers:        make(map[string]*Definition),
-		authClients:     make(map[string]*http.Client),
-		defaultClient:   newHttpClient(nil),
-		definitionsPath: definitionsPath,
-		watcher:         watcher,
+		Indexers:           make(map[string]*Definition),
+		authClients:        make(map[string]*http.Client),
+		defaultClient:      newHttpClient(nil),
+		flaresolverrClient: flaresolverrClient,
+		flaresolverrURL:    flaresolverrURL,
+		definitionsPath:    definitionsPath,
+		watcher:            watcher,
 	}
 
 	if err := m.Reload(); err != nil {
@@ -99,6 +111,79 @@ func NewManager(definitionsPath string) (*Manager, error) {
 	}
 
 	return m, nil
+}
+
+// executeFlareSolverrRequest sends a request through the FlareSolverr proxy.
+func (m *Manager) executeFlareSolverrRequest(ctx context.Context, method, urlStr string, body io.Reader) (*http.Response, error) {
+	if m.flaresolverrClient == nil || m.flaresolverrURL == "" {
+		return nil, fmt.Errorf("FlareSolverr is not configured")
+	}
+
+	slog.Debug("Executing request via FlareSolverr", "method", method, "url", urlStr)
+
+	// Read the body into a string to pass to FlareSolverr
+	var bodyString string
+	if body != nil {
+		bodyBytes, err := io.ReadAll(body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read request body: %w", err)
+		}
+		bodyString = string(bodyBytes)
+	}
+
+	flareReqData := map[string]interface{}{
+		"cmd":      fmt.Sprintf("request.%s", strings.ToLower(method)),
+		"url":      urlStr,
+		"postData": bodyString,
+	}
+
+	jsonReq, err := json.Marshal(flareReqData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal FlareSolverr request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", m.flaresolverrURL, bytes.NewBuffer(jsonReq))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create FlareSolverr request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := m.flaresolverrClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request to FlareSolverr: %w", err)
+	}
+
+	// The response body from FlareSolverr contains the actual response from the target site
+	var flareResp struct {
+		Solution struct {
+			URL      string            `json:"url"`
+			Status   int               `json:"status"`
+			Headers  map[string]string `json:"headers"`
+			Response string            `json:"response"`
+		} `json:"solution"`
+		Message string `json:"message"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&flareResp); err != nil {
+		return nil, fmt.Errorf("failed to decode FlareSolverr response: %w", err)
+	}
+	resp.Body.Close()
+
+	if flareResp.Message != "" && !strings.Contains(flareResp.Message, "OK") {
+		return nil, fmt.Errorf("FlareSolverr error: %s", flareResp.Message)
+	}
+
+	// Reconstruct the HTTP response from the FlareSolverr solution
+	httpResp := &http.Response{
+		StatusCode: flareResp.Solution.Status,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(flareResp.Solution.Response)),
+	}
+	for k, v := range flareResp.Solution.Headers {
+		httpResp.Header.Set(k, v)
+	}
+
+	return httpResp, nil
 }
 
 // GetIndexer safely retrieves an indexer definition by key.
@@ -387,13 +472,21 @@ func (m *Manager) authenticate(def *Definition) error {
 		form.Set(k, val)
 	}
 
-	req, err := http.NewRequest(def.Login.Method, def.Login.URL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return err
-	}
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	useFlareSolverr := def.UserConfig["use_flaresolverr"] == "true"
+	var resp *http.Response
+	var err error
 
-	resp, err := client.Do(req)
+	if useFlareSolverr {
+		resp, err = m.executeFlareSolverrRequest(context.Background(), def.Login.Method, def.Login.URL, strings.NewReader(form.Encode()))
+	} else {
+		req, err_req := http.NewRequest(def.Login.Method, def.Login.URL, strings.NewReader(form.Encode()))
+		if err_req != nil {
+			return err_req
+		}
+		req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+		resp, err = client.Do(req)
+	}
+
 	if err != nil {
 		return err
 	}
@@ -460,6 +553,7 @@ func (m *Manager) Search(ctx context.Context, indexerKey, query, category string
 	}
 
 	client := m.getClient(indexerKey)
+	useFlareSolverr := def.UserConfig["use_flaresolverr"] == "true"
 	tplData := struct {
 		Query    string
 		Config   map[string]string
@@ -474,8 +568,6 @@ func (m *Manager) Search(ctx context.Context, indexerKey, query, category string
 			continue
 		}
 
-		// ... (Rest of the Search function is unchanged)
-		// ... It will now correctly use the populated def.UserConfig
 		methodTpl := def.Search.Method
 		if methodTpl == "" {
 			methodTpl = "GET"
@@ -483,7 +575,8 @@ func (m *Manager) Search(ctx context.Context, indexerKey, query, category string
 		method, _ := m.executeTemplate(methodTpl, tplData)
 		method = strings.ToUpper(method)
 
-		var req *http.Request
+		var resp *http.Response
+		var reqBody io.Reader
 
 		if method == "POST" {
 			bodyTpl := def.Search.Body
@@ -492,26 +585,10 @@ func (m *Manager) Search(ctx context.Context, indexerKey, query, category string
 				lastErr = fmt.Errorf("invalid body template: %w", err)
 				continue
 			}
-
-			req, err = http.NewRequestWithContext(ctx, "POST", baseURL, strings.NewReader(bodyString))
-			if err != nil {
-				lastErr = err
-				continue
-			}
-
-			contentType := def.Search.ContentType
-			if contentType == "" {
-				contentType = "application/x-www-form-urlencoded"
-			}
-			req.Header.Set("Content-Type", contentType)
-		} else { // Default to GET
-			req, err = http.NewRequestWithContext(ctx, "GET", baseURL, nil)
-			if err != nil {
-				lastErr = err
-				continue
-			}
-
-			q := req.URL.Query()
+			reqBody = strings.NewReader(bodyString)
+		} else { // GET
+			u, _ := url.Parse(baseURL)
+			q := u.Query()
 			for key, valTpl := range def.Search.Params {
 				val, err := m.executeTemplate(valTpl, tplData)
 				if err != nil {
@@ -520,10 +597,28 @@ func (m *Manager) Search(ctx context.Context, indexerKey, query, category string
 					q.Set(key, val)
 				}
 			}
-			req.URL.RawQuery = q.Encode()
+			u.RawQuery = q.Encode()
+			baseURL = u.String()
 		}
 
-		resp, err := client.Do(req)
+		if useFlareSolverr {
+			resp, err = m.executeFlareSolverrRequest(ctx, method, baseURL, reqBody)
+		} else {
+			req, err_req := http.NewRequestWithContext(ctx, method, baseURL, reqBody)
+			if err_req != nil {
+				lastErr = err_req
+				continue
+			}
+			if method == "POST" {
+				contentType := def.Search.ContentType
+				if contentType == "" {
+					contentType = "application/x-www-form-urlencoded"
+				}
+				req.Header.Set("Content-Type", contentType)
+			}
+			resp, err = client.Do(req)
+		}
+
 		if err != nil {
 			if ctx.Err() == context.DeadlineExceeded {
 				return nil, ctx.Err()
@@ -605,7 +700,7 @@ func (m *Manager) parseHTMLResults(ctx context.Context, body io.Reader, def *Def
 			go func(searchResult SearchResult, detailURL string) {
 				defer wg.Done()
 				downloadSelector := Selector{Selector: def.Search.Results.DownloadSelector}
-				downloadURL, err := m.fetchDownloadLinkFromDetails(ctx, detailURL, downloadSelector)
+				downloadURL, err := m.fetchDownloadLinkFromDetails(ctx, detailURL, downloadSelector, def.UserConfig["use_flaresolverr"] == "true")
 				if err != nil {
 					slog.Warn("Failed to fetch details page", "url", detailURL, "error", err)
 					return
@@ -632,14 +727,21 @@ func (m *Manager) parseHTMLResults(ctx context.Context, body io.Reader, def *Def
 
 	return results, nil
 }
-func (m *Manager) fetchDownloadLinkFromDetails(ctx context.Context, detailURL string, selector Selector) (string, error) {
-	client := m.getClient("")
-	req, err := http.NewRequestWithContext(ctx, "GET", detailURL, nil)
-	if err != nil {
-		return "", err
+func (m *Manager) fetchDownloadLinkFromDetails(ctx context.Context, detailURL string, selector Selector, useFlareSolverr bool) (string, error) {
+	var resp *http.Response
+	var err error
+
+	if useFlareSolverr {
+		resp, err = m.executeFlareSolverrRequest(ctx, "GET", detailURL, nil)
+	} else {
+		client := m.getClient("")
+		req, err_req := http.NewRequestWithContext(ctx, "GET", detailURL, nil)
+		if err_req != nil {
+			return "", err_req
+		}
+		resp, err = client.Do(req)
 	}
 
-	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}

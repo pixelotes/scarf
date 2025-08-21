@@ -5,6 +5,11 @@ type: "public"
 enabled: true
 language: "en-US"
 schedule: "@every 1h"
+settings:
+- name: use_flaresolverr
+  type: checkbox
+  label: Use FlareSolverr
+  default: 'false'
 search:
   type: "html"
   urls:

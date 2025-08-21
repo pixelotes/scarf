@@ -41,26 +41,41 @@ def convert_jackett_to_scarf(jackett_data):
         'schedule': '@hourly'
     }
 
-    # --- NEW: Dynamic Settings Block ---
-    if scarf_def['type'] in ['private', 'semiprivate']:
-        scarf_settings = []
-        for setting in jackett_data.get('settings', []):
-            setting_type = setting.get('type')
-            if setting_type in ['text', 'password', 'checkbox', 'select']:
-                new_setting = {
-                    'name': setting.get('name'),
-                    'type': setting_type,
-                    'label': setting.get('label'),
-                    'default': str(setting.get('default', ''))
-                }
-                if setting_type == 'select':
-                    new_setting['options'] = setting.get('options', {})
-                scarf_settings.append(new_setting)
-        
-        if scarf_settings:
-            scarf_def['settings'] = scarf_settings
+    # --- Dynamic Settings Block ---
+    scarf_settings = []
+    use_flaresolverr_default = 'false'
+    
+    for setting in jackett_data.get('settings', []):
+        if setting.get('type') == 'info_flaresolverr':
+            use_flaresolverr_default = 'true'
+            continue # Skip adding the info field directly
 
-        # Convert login block
+        setting_type = setting.get('type')
+        if setting_type in ['text', 'password', 'checkbox', 'select']:
+            new_setting = {
+                'name': setting.get('name'),
+                'type': setting_type,
+                'label': setting.get('label'),
+                'default': str(setting.get('default', ''))
+            }
+            if setting_type == 'select':
+                new_setting['options'] = setting.get('options', {})
+            scarf_settings.append(new_setting)
+
+    # Add the use_flaresolverr checkbox to all trackers
+    scarf_settings.append({
+        'name': 'use_flaresolverr',
+        'type': 'checkbox',
+        'label': 'Use FlareSolverr',
+        'default': use_flaresolverr_default
+    })
+
+    if scarf_settings:
+        scarf_def['settings'] = scarf_settings
+
+
+    # Convert login block only for private/semiprivate trackers
+    if scarf_def['type'] in ['private', 'semiprivate']:
         login_info = jackett_data.get('login', {})
         if login_info.get('path'):
             scarf_def['login'] = {
@@ -107,7 +122,8 @@ def convert_jackett_to_scarf(jackett_data):
         # Handle templated values
         if '{{' in value:
             # Clean up the template for Go
-            go_template = re.sub(r'\{\{\s*if\s+\.Query\.IMDBID\s*\}\}.*?\{\{ else \}\}(.*?)\{\{ end \}\}', r'{{.Query}}', value)
+            go_template = re.sub(r'\{\{\s*if\s+\.Query\.Artist\s*\}\}(.*?)\{\{ else \}\}(.*?)\{\{ end \}\}','{{.Query}}', value)
+            go_template = re.sub(r'\{\{\s*if\s+\.Query\.IMDBID\s*\}\}.*?\{\{ else \}\}(.*?)\{\{ end \}\}', r'{{.Query}}', go_template)
             go_template = go_template.replace('{{ range .Categories }}{{.}};{{end}}', '{{.Category}}')
             param_strings.append(f"{key}={go_template}")
         else:
@@ -153,7 +169,11 @@ def process_file(input_file, output_file):
     print(f"\n[*] Processing file: {os.path.basename(input_file)}")
     try:
         with open(input_file, 'r', encoding='utf-8') as f:
-            jackett_data = yaml.safe_load(f)
+            # Workaround for files with BOM
+            content = f.read()
+            if content.startswith('\ufeff'):
+                content = content[1:]
+            jackett_data = yaml.safe_load(content)
         
         scarf_data = convert_jackett_to_scarf(jackett_data)
         

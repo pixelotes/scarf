@@ -5,6 +5,11 @@ type: "public"
 enabled: true
 language: "en-US"
 schedule: "@every 6h" # Es una API, no es necesario consultarla con tanta frecuencia.
+settings:
+- name: use_flaresolverr
+  type: checkbox
+  label: Use FlareSolverr
+  default: 'false'
 search:
   type: "json"
   # La URL está cuidadosamente construida para replicar la lógica de búsqueda de Jackett.

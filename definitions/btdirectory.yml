@@ -1,0 +1,36 @@
+key: btdirectory
+name: BTdirectory
+description: "BTdirectory (BT目錄) is a Public DHT Crawler"
+type: public
+enabled: true
+language: en-US
+schedule: '@hourly'
+settings:
+- name: use_flaresolverr
+  type: checkbox
+  label: Use FlareSolverr
+  default: 'false'
+search:
+  type: html
+  urls:
+    - "https://btmulu.live/{{ if .Query }}search.html{{ else }}search-create.html{{ end }}"
+  params:
+    name: "{{.Query}}"
+  results:
+    rows_selector: "article.item:has(a[href^='/hash/'])"
+    # This selector is now used on the details page to find the magnet link
+    download_selector: "a[href^='magnet:?xt=']@href"
+    fields:
+      title:
+        selector: "h4"
+        remove: "span"
+      # This tells Scarf to go to the details page first
+      details_url:
+        selector: "a[href^='/hash/']@href"
+      size:
+        selector: "p"
+      publish_date:
+        selector: "p"
+category_mappings:
+- indexer_cat: Other
+  torznab_cat: 8000

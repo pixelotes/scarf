@@ -5,7 +5,11 @@ type: "public"
 enabled: true
 language: "es-ES"
 schedule: "@hourly"
-
+settings:
+- name: use_flaresolverr
+  type: checkbox
+  label: Use FlareSolverr
+  default: 'false'
 search:
   type: "html"
   # This URL searches across all categories by default.

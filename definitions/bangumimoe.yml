@@ -5,7 +5,11 @@ type: "public"
 enabled: true
 language: "en-US"
 schedule: "@hourly"
-
+settings:
+- name: use_flaresolverr
+  type: checkbox
+  label: Use FlareSolverr
+  default: 'false'
 search:
   type: "json"
   

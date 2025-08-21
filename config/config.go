@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"os"
 	"strings"
-	"time" // Re-add the time import
+	"time"
 )
 
 func GetEnv(key, fallback string) string {

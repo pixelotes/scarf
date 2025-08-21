@@ -5,12 +5,19 @@ type: "public"
 enabled: true
 language: "en-US"
 schedule: "@every 1h"
-
+settings:
+  - name: uploader
+    type: text
+    label: Filter by Uploader
+    default: ''
+  - name: use_flaresolverr
+    type: checkbox
+    label: Use FlareSolverr
+    default: 'false'
 search:
   type: "json"
   urls:
     - "{{if .Query}}https://apibay.org/q.php?q={{.Query}}&cat={{.Category}}{{else}}https://apibay.org/precompiled/data_top100_recent.json{{end}}"
-
   results:
     path: ""
     fields:
@@ -26,7 +33,6 @@ search:
         selector: "leechers"
       publish_date:
         selector: "added"
-
 category_mappings:
   - indexer_cat: "101"
     torznab_cat: 3000
