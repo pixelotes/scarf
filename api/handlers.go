@@ -383,7 +383,6 @@ func (h *APIHandler) TorznabAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCaps returns the capabilities of an indexer
-// handleCaps returns the capabilities of an indexer
 func (h *APIHandler) handleCaps(w http.ResponseWriter, r *http.Request, indexerKey string) {
 	var caps TorznabCaps
 
@@ -503,35 +502,90 @@ func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexe
 
 	slog.Info("Received Torznab search request", "indexer", indexerKey, "query", query, "category", category)
 
-	def, ok := h.Manager.GetIndexer(indexerKey)
-	if !ok {
-		http.NotFound(w, r)
-		return
+	var results []indexer.SearchResult
+	var err error
+	var def *indexer.Definition
+
+	if indexerKey == "all" {
+		// Handle the special "all" case
+		slog.Debug("Performing search across all indexers", "query", query, "category", category)
+		results, err = h.searchAll(query, category)
+		if err != nil {
+			slog.Error("Torznab search failed for all indexers", "query", query, "error", err)
+			http.Error(w, "Failed to search indexers.", http.StatusInternalServerError)
+			return
+		}
+		// Create a fake definition for RSS generation
+		def = &indexer.Definition{
+			Name:        "All Indexers",
+			Description: "Aggregated search across all enabled indexers",
+			Language:    "en-US",
+		}
+	} else {
+		// Handle individual indexer search
+		var ok bool
+		def, ok = h.Manager.GetIndexer(indexerKey)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+
+		limiter := h.getRateLimiter(indexerKey)
+		if !limiter.Allow() {
+			http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+
+		cacheKeyHash := sha1.Sum([]byte(fmt.Sprintf("%s:search:%s:%s", indexerKey, query, category)))
+		cacheKey := fmt.Sprintf("%x", cacheKeyHash)
+
+		if cachedXML, found := h.Cache.Get(cacheKey); found {
+			w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+			w.Header().Set("X-Cache", "HIT")
+			w.Write(cachedXML)
+			return
+		}
+
+		results, err = h.Manager.Search(r.Context(), indexerKey, query, category)
+		if err != nil {
+			slog.Error("Torznab search failed", "indexer", indexerKey, "query", query, "error", err)
+			http.Error(w, "Failed to search indexer.", http.StatusInternalServerError)
+			return
+		}
+
+		// Cache the results for individual indexers (but not for "all")
+		defer func() {
+			if indexerKey != "all" {
+				feed := NewRSSFeed(def)
+				for _, result := range results {
+					item := Item{
+						Title:       result.Title,
+						Link:        result.DownloadURL,
+						PublishDate: result.PublishDate.Format(time.RFC1123Z),
+						Size:        result.Size,
+						Enclosure: Enclosure{
+							URL:    result.DownloadURL,
+							Length: result.Size,
+							Type:   "application/x-bittorrent",
+						},
+						Attrs: []TorznabAttr{
+							{Name: "seeders", Value: strconv.Itoa(result.Seeders)},
+							{Name: "leechers", Value: strconv.Itoa(result.Leechers)},
+							{Name: "size", Value: strconv.FormatInt(result.Size, 10)},
+						},
+					}
+					feed.Channel.Items = append(feed.Channel.Items, item)
+				}
+
+				if output, err := xml.MarshalIndent(feed, "", "  "); err == nil {
+					finalOutput := []byte(xml.Header + string(output))
+					h.Cache.Set(cacheKey, finalOutput, h.CacheTTL)
+				}
+			}
+		}()
 	}
 
-	limiter := h.getRateLimiter(indexerKey)
-	if !limiter.Allow() {
-		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
-		return
-	}
-
-	cacheKeyHash := sha1.Sum([]byte(fmt.Sprintf("%s:search:%s:%s", indexerKey, query, category)))
-	cacheKey := fmt.Sprintf("%x", cacheKeyHash)
-
-	if cachedXML, found := h.Cache.Get(cacheKey); found {
-		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
-		w.Header().Set("X-Cache", "HIT")
-		w.Write(cachedXML)
-		return
-	}
-
-	results, err := h.Manager.Search(r.Context(), indexerKey, query, category)
-	if err != nil {
-		slog.Error("Torznab search failed", "indexer", indexerKey, "query", query, "error", err)
-		http.Error(w, "Failed to search indexer.", http.StatusInternalServerError)
-		return
-	}
-
+	// Generate RSS feed for the results (works for both "all" and individual indexers)
 	feed := NewRSSFeed(def)
 	for _, result := range results {
 		item := Item{
@@ -560,10 +614,13 @@ func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexe
 	}
 
 	finalOutput := []byte(xml.Header + string(output))
-	h.Cache.Set(cacheKey, finalOutput, h.CacheTTL)
 
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
-	w.Header().Set("X-Cache", "MISS")
+	if indexerKey == "all" {
+		w.Header().Set("X-Cache", "MISS") // Don't cache "all" results
+	} else {
+		w.Header().Set("X-Cache", "MISS")
+	}
 	w.Write(finalOutput)
 }
 
