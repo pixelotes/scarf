@@ -67,8 +67,10 @@ func newHttpClient(jar http.CookieJar) *http.Client {
 		TLSClientConfig:       &tls.Config{InsecureSkipVerify: skipVerify},
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConnsPerHost:   10,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 10 * time.Second,
+		DisableKeepAlives:     false,
 	}
 
 	return &http.Client{
