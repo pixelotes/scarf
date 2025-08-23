@@ -383,33 +383,32 @@ func (h *APIHandler) TorznabAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCaps returns the capabilities of an indexer
+// handleCaps returns the capabilities of an indexer
 func (h *APIHandler) handleCaps(w http.ResponseWriter, r *http.Request, indexerKey string) {
-	def, ok := h.Manager.GetIndexer(indexerKey)
-	if !ok {
-		slog.Warn("Indexer not found for caps request", "indexer", indexerKey)
-		http.NotFound(w, r)
-		return
-	}
+	var caps TorznabCaps
 
-	slog.Debug("Generating caps for indexer", "indexer", indexerKey, "name", def.Name)
+	if indexerKey == "all" {
+		// Handle the special "all" case with hardcoded categories
+		slog.Debug("Generating caps for 'all' indexers")
 
-	caps := TorznabCaps{
-		XMLName: xml.Name{Local: "caps"},
-		Server:  TorznabServer{Title: def.Name},
-		Limits:  TorznabLimits{Max: 100, Default: 50},
-		Searching: TorznabSearching{
-			Search:      TorznabSearchType{Available: "yes", SupportedParams: "q,cat"},
-			TvSearch:    TorznabSearchType{Available: "yes", SupportedParams: "q,cat,season,ep"},
-			MovieSearch: TorznabSearchType{Available: "yes", SupportedParams: "q,cat,imdbid"},
-		},
-		Categories: TorznabCategories{Categories: []TorznabParentCategory{}},
-	}
+		caps = TorznabCaps{
+			XMLName: xml.Name{Local: "caps"},
+			Server:  TorznabServer{Title: "All Indexers"},
+			Limits:  TorznabLimits{Max: 100, Default: 50},
+			Searching: TorznabSearching{
+				Search:      TorznabSearchType{Available: "yes", SupportedParams: "q,cat"},
+				TvSearch:    TorznabSearchType{Available: "yes", SupportedParams: "q,cat,season,ep"},
+				MovieSearch: TorznabSearchType{Available: "yes", SupportedParams: "q,cat,imdbid"},
+			},
+			Categories: TorznabCategories{Categories: []TorznabParentCategory{}},
+		}
 
-	parentCategories := make(map[int]TorznabParentCategory)
+		// Hardcoded categories as requested: 2000, 2030, 2040, 5000, 5030, 5040
+		hardcodedCategoryIDs := []int{2000, 2030, 2040, 5000, 5030, 5040}
+		parentCategories := make(map[int]TorznabParentCategory)
 
-	if def.CategoryMappings != nil {
-		for _, mapping := range def.CategoryMappings {
-			if stdCat, ok := indexer.StandardCategories[mapping.TorznabCategory]; ok {
+		for _, catID := range hardcodedCategoryIDs {
+			if stdCat, ok := indexer.StandardCategories[catID]; ok {
 				parentID := (stdCat.ID / 1000) * 1000
 				if parent, ok := indexer.StandardCategories[parentID]; ok {
 					if _, exists := parentCategories[parentID]; !exists {
@@ -428,10 +427,62 @@ func (h *APIHandler) handleCaps(w http.ResponseWriter, r *http.Request, indexerK
 				}
 			}
 		}
-	}
 
-	for _, pCat := range parentCategories {
-		caps.Categories.Categories = append(caps.Categories.Categories, pCat)
+		for _, pCat := range parentCategories {
+			caps.Categories.Categories = append(caps.Categories.Categories, pCat)
+		}
+
+	} else {
+		// Handle individual indexer caps
+		def, ok := h.Manager.GetIndexer(indexerKey)
+		if !ok {
+			slog.Warn("Indexer not found for caps request", "indexer", indexerKey)
+			http.NotFound(w, r)
+			return
+		}
+
+		slog.Debug("Generating caps for indexer", "indexer", indexerKey, "name", def.Name)
+
+		caps = TorznabCaps{
+			XMLName: xml.Name{Local: "caps"},
+			Server:  TorznabServer{Title: def.Name},
+			Limits:  TorznabLimits{Max: 100, Default: 50},
+			Searching: TorznabSearching{
+				Search:      TorznabSearchType{Available: "yes", SupportedParams: "q,cat"},
+				TvSearch:    TorznabSearchType{Available: "yes", SupportedParams: "q,cat,season,ep"},
+				MovieSearch: TorznabSearchType{Available: "yes", SupportedParams: "q,cat,imdbid"},
+			},
+			Categories: TorznabCategories{Categories: []TorznabParentCategory{}},
+		}
+
+		parentCategories := make(map[int]TorznabParentCategory)
+
+		if def.CategoryMappings != nil {
+			for _, mapping := range def.CategoryMappings {
+				if stdCat, ok := indexer.StandardCategories[mapping.TorznabCategory]; ok {
+					parentID := (stdCat.ID / 1000) * 1000
+					if parent, ok := indexer.StandardCategories[parentID]; ok {
+						if _, exists := parentCategories[parentID]; !exists {
+							parentCategories[parentID] = TorznabParentCategory{
+								ID:     strconv.Itoa(parent.ID),
+								Name:   parent.Name,
+								Subcat: []TorznabSubCategory{},
+							}
+						}
+						pCat := parentCategories[parentID]
+						pCat.Subcat = append(pCat.Subcat, TorznabSubCategory{
+							ID:   strconv.Itoa(stdCat.ID),
+							Name: strings.TrimPrefix(stdCat.Name, parent.Name+"/"),
+						})
+						parentCategories[parentID] = pCat
+					}
+				}
+			}
+		}
+
+		for _, pCat := range parentCategories {
+			caps.Categories.Categories = append(caps.Categories.Categories, pCat)
+		}
 	}
 
 	output, err := xml.MarshalIndent(caps, "", "  ")
