@@ -151,9 +151,10 @@ func (h *APIHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 
 	// Set appropriate HTTP status code
 	statusCode := http.StatusOK
-	if healthStatus["status"] == "degraded" {
+	switch healthStatus["status"] {
+	case "degraded":
 		statusCode = http.StatusServiceUnavailable
-	} else if healthStatus["status"] == "unhealthy" {
+	case "unhealthy":
 		statusCode = http.StatusInternalServerError
 	}
 
@@ -279,8 +280,8 @@ func (h *APIHandler) ToggleIndexer(w http.ResponseWriter, r *http.Request) {
 }
 
 // searchAll performs a concurrent search across all indexers with unified cache support
-func (h *APIHandler) searchAll(query, category string) ([]indexer.SearchResult, error) {
-	slog.Info("Starting aggregate search", "query", query, "category", category)
+func (h *APIHandler) searchAll(params indexer.SearchParams) ([]indexer.SearchResult, error) {
+	slog.Info("Starting aggregate search", "query", params.Query, "category", params.Category)
 	allIndexers := h.Manager.GetAllIndexers()
 
 	var wg sync.WaitGroup
@@ -296,8 +297,8 @@ func (h *APIHandler) searchAll(query, category string) ([]indexer.SearchResult, 
 		}
 
 		// Use unified cache structure
-		if cachedResults, found := GetCachedSearchResults(h.Cache, key, query, category); found {
-			slog.Info("Aggregate search served from cache for indexer", "indexer", def.Name, "query", query)
+		if cachedResults, found := GetCachedSearchResults(h.Cache, key, params.Query, params.Category); found {
+			slog.Info("Aggregate search served from cache for indexer", "indexer", def.Name, "query", params.Query)
 			if len(cachedResults) > 0 {
 				totalResults[key] = cachedResults
 			}
@@ -320,20 +321,20 @@ func (h *APIHandler) searchAll(query, category string) ([]indexer.SearchResult, 
 				return
 			}
 
-			slog.Info("Aggregate search (cache miss)", "indexer", key, "query", query)
-			results, err := h.Manager.Search(ctx, key, query, category)
+			slog.Info("Aggregate search (cache miss)", "indexer", key, "query", params.Query)
+			results, err := h.Manager.Search(ctx, key, params)
 			if err != nil {
 				if err == context.DeadlineExceeded {
 					slog.Warn("Search timed out for indexer", "indexer", key)
 				} else {
-					slog.Warn("Search failed for indexer during searchAll", "indexer", key, "query", query, "error", err)
+					slog.Warn("Search failed for indexer during searchAll", "indexer", key, "query", params.Query, "error", err)
 				}
 				return
 			}
 
 			if len(results) > 0 {
 				// Cache the results using unified cache structure
-				CacheSearchResults(h.Cache, key, query, category, results, h.CacheTTL)
+				CacheSearchResults(h.Cache, key, params.Query, params.Category, results, h.CacheTTL)
 				totalResults[key] = results
 			}
 		}(indexerKey)
@@ -395,9 +396,19 @@ func (h *APIHandler) deduplicateResults(results []indexer.SearchResult) []indexe
 func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 
+	searchParams := indexer.SearchParams{
+		Query:    r.URL.Query().Get("q"),
+		Category: r.URL.Query().Get("cat"),
+		IMDBID:   r.URL.Query().Get("imdbid"),
+	}
+	if s, err := strconv.Atoi(r.URL.Query().Get("season")); err == nil {
+		searchParams.Season = s
+	}
+	if e, err := strconv.Atoi(r.URL.Query().Get("ep")); err == nil {
+		searchParams.Episode = e
+	}
+
 	indexerKey := r.URL.Query().Get("indexer")
-	query := r.URL.Query().Get("q")
-	category := r.URL.Query().Get("cat")
 
 	// Parse pagination parameters
 	limitStr := r.URL.Query().Get("perPage")
@@ -430,18 +441,18 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 	// Check unified cache first (unless forcing fresh)
 	if !forceFresh {
 		if indexerKey == "all" {
-			results, err = h.searchAll(query, category)
+			results, err = h.searchAll(searchParams)
 			// searchAll handles its own caching, so we consider this a cache operation
 			cacheHit = false // We'll let searchAll report individual cache hits
 		} else {
 			// Try unified cache for individual indexer
-			if cachedResults, found := GetCachedSearchResults(h.Cache, indexerKey, query, category); found {
-				slog.Info("Web search request served from cache", "indexer", indexerKey, "query", query)
+			if cachedResults, found := GetCachedSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category); found {
+				slog.Info("Web search request served from cache", "indexer", indexerKey, "query", searchParams.Query)
 				results = cachedResults
 				cacheHit = true
 			} else {
 				// Cache miss - perform live search
-				slog.Info("Web search request (cache miss)", "indexer", indexerKey, "query", query, "category", category)
+				slog.Info("Web search request (cache miss)", "indexer", indexerKey, "query", searchParams.Query, "category", searchParams.Category)
 
 				limiter := h.getRateLimiter(indexerKey)
 				if !limiter.Allow() {
@@ -449,34 +460,34 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 
-				results, err = h.Manager.Search(r.Context(), indexerKey, query, category)
+				results, err = h.Manager.Search(r.Context(), indexerKey, searchParams)
 				if err == nil && len(results) > 0 {
 					// Cache the results using unified structure
-					CacheSearchResults(h.Cache, indexerKey, query, category, results, h.CacheTTL)
+					CacheSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category, results, h.CacheTTL)
 				}
 			}
 		}
 	} else {
 		// Force fresh search
-		slog.Info("Web search request (forced fresh)", "indexer", indexerKey, "query", query, "category", category)
+		slog.Info("Web search request (forced fresh)", "indexer", indexerKey, "query", searchParams.Query, "category", searchParams.Category)
 
 		if indexerKey == "all" {
-			results, err = h.searchAll(query, category)
+			results, err = h.searchAll(searchParams)
 		} else {
 			limiter := h.getRateLimiter(indexerKey)
 			if !limiter.Allow() {
 				http.Error(w, `{"error": "Rate limit exceeded, please try again later"}`, http.StatusTooManyRequests)
 				return
 			}
-			results, err = h.Manager.Search(r.Context(), indexerKey, query, category)
+			results, err = h.Manager.Search(r.Context(), indexerKey, searchParams)
 			if err == nil && len(results) > 0 {
-				CacheSearchResults(h.Cache, indexerKey, query, category, results, h.CacheTTL)
+				CacheSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category, results, h.CacheTTL)
 			}
 		}
 	}
 
 	if err != nil {
-		slog.Error("Error during web search", "indexer", indexerKey, "query", query, "error", err)
+		slog.Error("Error during web search", "indexer", indexerKey, "query", searchParams.Query, "error", err)
 		http.Error(w, `{"error": "Failed to perform search on the selected indexer"}`, http.StatusInternalServerError)
 		return
 	}
@@ -640,7 +651,7 @@ func (h *APIHandler) TorznabAPI(w http.ResponseWriter, r *http.Request) {
 	switch torznabType {
 	case "caps":
 		h.handleCaps(w, r, indexerKey)
-	case "search", "tv-search", "movie-search":
+	case "search", "tv-search", "movie-search", "book-search", "music-search":
 		h.handleSearch(w, r, indexerKey)
 	default:
 		http.Error(w, fmt.Sprintf("Unsupported Torznab function: %s", torznabType), http.StatusBadRequest)
@@ -653,47 +664,18 @@ func (h *APIHandler) handleCaps(w http.ResponseWriter, r *http.Request, indexerK
 
 	if indexerKey == "all" {
 		slog.Debug("Generating caps for 'all' indexers")
-
+		// "all" endpoint only supports basic search for now
 		caps = TorznabCaps{
 			XMLName: xml.Name{Local: "caps"},
 			Server:  TorznabServer{Title: "All Indexers"},
 			Limits:  TorznabLimits{Max: 100, Default: 50},
 			Searching: TorznabSearching{
 				Search:      TorznabSearchType{Available: "yes", SupportedParams: "q,cat"},
-				TvSearch:    TorznabSearchType{Available: "yes", SupportedParams: "q,cat,season,ep"},
-				MovieSearch: TorznabSearchType{Available: "yes", SupportedParams: "q,cat,imdbid"},
+				TvSearch:    TorznabSearchType{Available: "no"},
+				MovieSearch: TorznabSearchType{Available: "no"},
 			},
 			Categories: TorznabCategories{Categories: []TorznabParentCategory{}},
 		}
-
-		hardcodedCategoryIDs := []int{2000, 2030, 2040, 5000, 5030, 5040}
-		parentCategories := make(map[int]TorznabParentCategory)
-
-		for _, catID := range hardcodedCategoryIDs {
-			if stdCat, ok := indexer.StandardCategories[catID]; ok {
-				parentID := (stdCat.ID / 1000) * 1000
-				if parent, ok := indexer.StandardCategories[parentID]; ok {
-					if _, exists := parentCategories[parentID]; !exists {
-						parentCategories[parentID] = TorznabParentCategory{
-							ID:     strconv.Itoa(parent.ID),
-							Name:   parent.Name,
-							Subcat: []TorznabSubCategory{},
-						}
-					}
-					pCat := parentCategories[parentID]
-					pCat.Subcat = append(pCat.Subcat, TorznabSubCategory{
-						ID:   strconv.Itoa(stdCat.ID),
-						Name: strings.TrimPrefix(stdCat.Name, parent.Name+"/"),
-					})
-					parentCategories[parentID] = pCat
-				}
-			}
-		}
-
-		for _, pCat := range parentCategories {
-			caps.Categories.Categories = append(caps.Categories.Categories, pCat)
-		}
-
 	} else {
 		def, ok := h.Manager.GetIndexer(indexerKey)
 		if !ok {
@@ -704,20 +686,33 @@ func (h *APIHandler) handleCaps(w http.ResponseWriter, r *http.Request, indexerK
 
 		slog.Debug("Generating caps for indexer", "indexer", indexerKey, "name", def.Name)
 
+		// Dynamically build searching capabilities
+		searching := TorznabSearching{
+			Search:      TorznabSearchType{Available: "no"},
+			TvSearch:    TorznabSearchType{Available: "no"},
+			MovieSearch: TorznabSearchType{Available: "no"},
+		}
+		for mode, params := range def.Search.Modes {
+			supportedParams := strings.Join(params, ",")
+			switch mode {
+			case "search":
+				searching.Search = TorznabSearchType{Available: "yes", SupportedParams: supportedParams}
+			case "tv-search":
+				searching.TvSearch = TorznabSearchType{Available: "yes", SupportedParams: supportedParams}
+			case "movie-search":
+				searching.MovieSearch = TorznabSearchType{Available: "yes", SupportedParams: supportedParams}
+			}
+		}
+
 		caps = TorznabCaps{
-			XMLName: xml.Name{Local: "caps"},
-			Server:  TorznabServer{Title: def.Name},
-			Limits:  TorznabLimits{Max: 100, Default: 50},
-			Searching: TorznabSearching{
-				Search:      TorznabSearchType{Available: "yes", SupportedParams: "q,cat"},
-				TvSearch:    TorznabSearchType{Available: "yes", SupportedParams: "q,cat,season,ep"},
-				MovieSearch: TorznabSearchType{Available: "yes", SupportedParams: "q,cat,imdbid"},
-			},
+			XMLName:    xml.Name{Local: "caps"},
+			Server:     TorznabServer{Title: def.Name},
+			Limits:     TorznabLimits{Max: 100, Default: 50},
+			Searching:  searching,
 			Categories: TorznabCategories{Categories: []TorznabParentCategory{}},
 		}
 
 		parentCategories := make(map[int]TorznabParentCategory)
-
 		if def.CategoryMappings != nil {
 			for _, mapping := range def.CategoryMappings {
 				if stdCat, ok := indexer.StandardCategories[mapping.TorznabCategory]; ok {
@@ -740,7 +735,6 @@ func (h *APIHandler) handleCaps(w http.ResponseWriter, r *http.Request, indexerK
 				}
 			}
 		}
-
 		for _, pCat := range parentCategories {
 			caps.Categories.Categories = append(caps.Categories.Categories, pCat)
 		}
@@ -759,18 +753,30 @@ func (h *APIHandler) handleCaps(w http.ResponseWriter, r *http.Request, indexerK
 
 // handleSearch performs the actual search and returns RSS (updated for unified cache)
 func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexerKey string) {
-	query := r.URL.Query().Get("q")
-	category := r.URL.Query().Get("cat")
+	searchParams := indexer.SearchParams{
+		Query:    r.URL.Query().Get("q"),
+		Category: r.URL.Query().Get("cat"),
+		IMDBID:   r.URL.Query().Get("imdbid"),
+		TVDBID:   r.URL.Query().Get("tvdbid"),
+		RID:      r.URL.Query().Get("rid"),
+		GUID:     r.URL.Query().Get("guid"),
+	}
+	if s, err := strconv.Atoi(r.URL.Query().Get("season")); err == nil {
+		searchParams.Season = s
+	}
+	if e, err := strconv.Atoi(r.URL.Query().Get("ep")); err == nil {
+		searchParams.Episode = e
+	}
 
 	var results []indexer.SearchResult
 	var err error
 	var def *indexer.Definition
 
 	if indexerKey == "all" {
-		slog.Info("Torznab request", "indexer", "all", "query", query, "category", category)
-		results, err = h.searchAll(query, category)
+		slog.Info("Torznab request", "indexer", "all", "query", searchParams.Query, "category", searchParams.Category)
+		results, err = h.searchAll(searchParams)
 		if err != nil {
-			slog.Error("Torznab search failed for all indexers", "query", query, "error", err)
+			slog.Error("Torznab search failed for all indexers", "query", searchParams.Query, "error", err)
 			http.Error(w, "Failed to search indexers.", http.StatusInternalServerError)
 			return
 		}
@@ -794,8 +800,8 @@ func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexe
 		}
 
 		// Check if we have cached RSS XML first
-		if cachedXML, found := GetCachedRSSFeed(h.Cache, indexerKey, query, category); found {
-			slog.Info("Torznab request served from RSS cache", "indexer", indexerKey, "query", query)
+		if cachedXML, found := GetCachedRSSFeed(h.Cache, indexerKey, searchParams.Query, searchParams.Category); found {
+			slog.Info("Torznab request served from RSS cache", "indexer", indexerKey, "query", searchParams.Query)
 			w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 			w.Header().Set("X-Cache", "HIT")
 			w.Write(cachedXML)
@@ -803,20 +809,20 @@ func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexe
 		}
 
 		// Check unified cache for search results
-		if cachedResults, found := GetCachedSearchResults(h.Cache, indexerKey, query, category); found {
-			slog.Info("Torznab request served from unified cache", "indexer", indexerKey, "query", query)
+		if cachedResults, found := GetCachedSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category); found {
+			slog.Info("Torznab request served from unified cache", "indexer", indexerKey, "query", searchParams.Query)
 			results = cachedResults
 		} else {
-			slog.Info("Torznab request (cache miss)", "indexer", indexerKey, "query", query, "category", category)
-			results, err = h.Manager.Search(r.Context(), indexerKey, query, category)
+			slog.Info("Torznab request (cache miss)", "indexer", indexerKey, "query", searchParams.Query, "category", searchParams.Category)
+			results, err = h.Manager.Search(r.Context(), indexerKey, searchParams)
 			if err != nil {
-				slog.Error("Torznab search failed", "indexer", indexerKey, "query", query, "error", err)
+				slog.Error("Torznab search failed", "indexer", indexerKey, "query", searchParams.Query, "error", err)
 				http.Error(w, "Failed to search indexer.", http.StatusInternalServerError)
 				return
 			}
 			// Cache the results
 			if len(results) > 0 {
-				CacheSearchResults(h.Cache, indexerKey, query, category, results, h.CacheTTL)
+				CacheSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category, results, h.CacheTTL)
 			}
 		}
 	}

@@ -30,6 +30,12 @@ search:
         selector: "a"
       download_url:
         selector: "magnet:?xt=urn:btih:{{.Result.h}}&dn={{.Result.n}}"
+  modes:
+    search: [q]
+    tv-search: [q, season, ep]
+    movie-search: [q, imdbid]
+    music-search: [q]
+    book-search: [q]
 
 category_mappings:
   - indexer_cat: "Movies"

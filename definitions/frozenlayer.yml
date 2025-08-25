@@ -33,6 +33,9 @@ search:
       # Scarf's fuzzy date parser will handle the various date formats.
       publish_date:
         selector: "td.fecha"
+  modes:
+    search: [q]
+    tv-search: [q, season, ep]
 category_mappings:
   - indexer_cat: "Anime"
     torznab_cat: 5080

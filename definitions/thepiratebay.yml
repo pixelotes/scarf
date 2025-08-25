@@ -33,6 +33,9 @@ search:
         selector: "leechers"
       publish_date:
         selector: "added"
+  modes:
+    search: [q]
+    tv-search: [q, season, ep]
 category_mappings:
   - indexer_cat: "101"
     torznab_cat: 3000

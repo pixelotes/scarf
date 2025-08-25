@@ -28,3 +28,5 @@ search:
         selector: "a@href"
       size:
         selector: "td.td-size"
+  modes:
+    search: [q]

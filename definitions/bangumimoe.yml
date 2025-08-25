@@ -35,6 +35,12 @@ search:
         selector: "publish_time"
       download_url:
         selector: "magnet:?xt=urn:btih:{{.Result.infoHash}}&dn={{.Result.title}}"
+  modes:
+    search: [q]
+    tv-search: [q, season, ep]
+    movie-search: [q]
+    music-search: [q]
+    book-search: [q]
 
 category_mappings:
   - indexer_cat: "549ef207fe682f7549f1ea90"

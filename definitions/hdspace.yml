@@ -50,6 +50,11 @@ search:
         selector: td:nth-child(8)
       leechers:
         selector: td:nth-child(9)
+  modes:
+    search: [q]
+    tv-search: [q, season, ep, imdbid]
+    movie-search: [q, imdbid]
+    music-search: [q]
 category_mappings:
   - indexer_cat: '15'
     torznab_cat: 2070

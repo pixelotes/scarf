@@ -1,54 +1,58 @@
-key: "uindex"
-name: "Uindex"
-description: "Uindex is a Public Torrent Tracker for MOVIES / TV / MUSIC / GENERAL"
-type: "public"
+key: uindex
+name: Uindex
+description: Uindex is a Public Torrent Tracker for MOVIES / TV / MUSIC / GENERAL
+type: public
 enabled: true
-language: "en-US"
-schedule: "@every 1h"
+language: en-US
+schedule: '@hourly'
 settings:
 - name: use_flaresolverr
   type: checkbox
   label: Use FlareSolverr
   default: 'false'
 search:
-  type: "html"
-  urls: 
-    - "https://uindex.org/search.php"
-
-  params:
-    search: "{{.Query}}"
-    c: "{{.Category}}"
-
+  type: html
+  urls:
+  - https://uindex.org/search.php
+  params: {}
   results:
-    rows_selector: "table.maintable > tbody > tr:has(a[href^='magnet:?xt='])"
+    rows_selector: table.maintable > tbody > tr:has(a[href^="magnet:?xt="])
     fields:
       title:
-        selector: "a[href^='/details.php?id=']"
+        selector: a[href^="/details.php?id="]
+      details_url:
+        selector: a[href^="/details.php?id="]@href
       download_url:
-        selector: "a[href^='magnet:?xt=']@href"
+        selector: a[href^="magnet:?xt="]@href
       size:
-        selector: "td:nth-child(3)"
+        selector: td:nth-child(3)
       seeders:
-        selector: "td:nth-child(4)"
+        selector: td:nth-child(4)
       leechers:
-        selector: "td:nth-child(5)"
+        selector: td:nth-child(5)
       publish_date:
-        selector: "div.sub"
-
+        selector: div.sub
+  modes:
+    search: [q]
+    tv-search: [q, season, ep]
+    movie-search: [q]
+    music-search: [q]
 category_mappings:
-  - indexer_cat: "1"
-    torznab_cat: 2000
-  - indexer_cat: "2"
-    torznab_cat: 5000
-  - indexer_cat: "3"
-    torznab_cat: 4050
-  - indexer_cat: "4"
-    torznab_cat: 3000
-  - indexer_cat: "5"
-    torznab_cat: 4000
-  - indexer_cat: "6"
-    torznab_cat: 6000
-  - indexer_cat: "7"
-    torznab_cat: 5080
-  - indexer_cat: "8"
-    torznab_cat: 8000
+- indexer_cat: '1'
+  torznab_cat: 2000
+- indexer_cat: '2'
+  torznab_cat: 5000
+- indexer_cat: '3'
+  torznab_cat: 1000
+- indexer_cat: '4'
+  torznab_cat: 3000
+- indexer_cat: '5'
+  torznab_cat: 4000
+- indexer_cat: '6'
+  torznab_cat: 6000
+- indexer_cat: '7'
+  torznab_cat: 5080
+- indexer_cat: '8'
+  torznab_cat: 8000
+- indexer_cat: '0'
+  torznab_cat: 8000
