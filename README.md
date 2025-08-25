@@ -141,6 +141,13 @@ search:
         selector: " div.flex.flex-wrap  span.text-red-600 > span:nth-child(2)"
       publish_date:
         selector: "div.space-y-2 > span:nth-child(3)"
+  modes:
+    search: [q]
+    tv-search: [q, season, ep, imdbid]
+    movie-search: [q, imdbid]
+    music-search: [q]
+    book-search: [q]
+
 category_mappings:
   - indexer_cat: "Movies"
     torznab_cat: 2000
