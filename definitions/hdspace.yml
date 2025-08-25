@@ -2,7 +2,7 @@ key: hdspace
 name: HD-Space
 description: HD-Space (HDS) is a Private Torrent Tracker for HD MOVIES / TV
 type: private
-enabled: true
+enabled: "false"
 language: en-US
 schedule: '@hourly'
 settings:

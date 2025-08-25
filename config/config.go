@@ -27,6 +27,7 @@ type ConfigOptions struct {
 	InsecureSkipVerify bool
 	MaxCacheSize       int64         // New: Maximum cache size in MB
 	RequestTimeout     time.Duration // New: HTTP request timeout
+	DefaultAPILimit    int           // New: Default number of results for API
 }
 
 // GetConfig loads and validates all configuration from environment variables
@@ -45,6 +46,7 @@ func GetConfig() (*ConfigOptions, error) {
 		InsecureSkipVerify: GetEnvAsBool("INSECURE_SKIP_VERIFY", false),
 		MaxCacheSize:       GetEnvAsInt64("MAX_CACHE_SIZE_MB", 500) * 1024 * 1024, // Convert MB to bytes
 		RequestTimeout:     GetEnvAsDuration("REQUEST_TIMEOUT", 20*time.Second),
+		DefaultAPILimit:    GetEnvAsInt("DEFAULT_API_LIMIT", 100),
 	}
 
 	// Validate configuration
@@ -122,6 +124,7 @@ Server Configuration:
   WEB_UI=true                      Enable web interface (true/false)
   DEBUG=false                      Enable debug logging (true/false)
   REQUEST_TIMEOUT=20s              HTTP request timeout (e.g., 30s, 2m)
+  DEFAULT_API_LIMIT=100            Default number of results for API clients
 
 Storage & Caching:
   DEFINITIONS_PATH=./definitions   Path to indexer definition files
@@ -141,7 +144,7 @@ External Services:
 
 Examples:
   APP_PORT=9090 CACHE_TTL=30m DEBUG=true ./scarf
-  FLARESOLVERR_URL=http://localhost:8191 ./scarf
+  FLARESOLVERR_URL=http://localhost:8191 DEFAULT_API_LIMIT=1000 ./scarf
   
 Note: Sensitive values are auto-generated if not provided.
 =============================================
@@ -174,7 +177,15 @@ func GetEnvAsBool(key string, fallback bool) bool {
 	return strings.ToLower(val) == "true" || val == "1"
 }
 
-// New helper function for int64 values
+func GetEnvAsInt(key string, fallback int) int {
+	if valueStr, ok := os.LookupEnv(key); ok {
+		if value, err := strconv.Atoi(valueStr); err == nil {
+			return value
+		}
+	}
+	return fallback
+}
+
 func GetEnvAsInt64(key string, fallback int64) int64 {
 	if valueStr, ok := os.LookupEnv(key); ok {
 		if value, err := strconv.ParseInt(valueStr, 10, 64); err == nil {

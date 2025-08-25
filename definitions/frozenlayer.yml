@@ -2,20 +2,19 @@ key: "frozenlayer"
 name: "Frozen Layer"
 description: "Frozen Layer is a SPANISH Public torrent site focused on ANIME"
 type: "public"
-enabled: true
+enabled: "false"
 language: "es-ES"
 schedule: "@hourly"
 settings:
-- name: use_flaresolverr
-  type: checkbox
-  label: Use FlareSolverr
-  default: 'false'
+  - name: use_flaresolverr
+    type: checkbox
+    label: Use FlareSolverr
+    default: 'false'
 search:
   type: "html"
   # This URL searches across all categories by default.
   urls:
     - "https://www.frozen-layer.com/buscar/descargas/todos/{{.Query}}?search=Buscar"
-
   results:
     # Selector for each row in the results table that has a magnet link.
     rows_selector: "table#descargas > tbody > tr:has(td > a[href^='magnet:?'])"
@@ -34,7 +33,6 @@ search:
       # Scarf's fuzzy date parser will handle the various date formats.
       publish_date:
         selector: "td.fecha"
-
 category_mappings:
   - indexer_cat: "Anime"
     torznab_cat: 5080

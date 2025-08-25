@@ -2,14 +2,14 @@ key: btdirectory
 name: BTdirectory
 description: "BTdirectory (BT目錄) is a Public DHT Crawler"
 type: public
-enabled: true
+enabled: "false"
 language: en-US
 schedule: '@hourly'
 settings:
-- name: use_flaresolverr
-  type: checkbox
-  label: Use FlareSolverr
-  default: 'false'
+  - name: use_flaresolverr
+    type: checkbox
+    label: Use FlareSolverr
+    default: 'false'
 search:
   type: html
   urls:
@@ -32,5 +32,5 @@ search:
       publish_date:
         selector: "p"
 category_mappings:
-- indexer_cat: Other
-  torznab_cat: 8000
+  - indexer_cat: Other
+    torznab_cat: 8000

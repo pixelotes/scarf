@@ -2,14 +2,14 @@ key: aniRena
 name: AniRena
 description: AniRena is a Public torrent tracker for the latest anime and Japanese related torrents
 type: "public"
-enabled: true
+enabled: "false"
 language: en-US
 schedule: '@every 1h'
 settings:
-- name: use_flaresolverr
-  type: checkbox
-  label: Use FlareSolverr
-  default: 'false'
+  - name: use_flaresolverr
+    type: checkbox
+    label: Use FlareSolverr
+    default: 'false'
 search:
   type: html
   urls:
