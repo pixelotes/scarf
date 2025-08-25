@@ -140,7 +140,7 @@ func main() {
 				ctx, cancel := context.WithTimeout(context.Background(), cfg.RequestTimeout*2) // Give scheduled jobs double timeout
 				defer cancel()
 
-				results, err := idxManager.Search(ctx, indexerKey, "", "")
+				results, err := idxManager.Search(ctx, indexerKey, indexer.SearchParams{})
 				if err != nil {
 					slog.Error("Scheduler: Failed to fetch latest", "indexer", indexerDef.Name, "error", err)
 					return

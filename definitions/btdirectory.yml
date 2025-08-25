@@ -31,6 +31,12 @@ search:
         selector: "p"
       publish_date:
         selector: "p"
+  modes:
+    search: [q]
+    tv-search: [q, season, ep]
+    movie-search: [q]
+    music-search: [q]
+    book-search: [q]
 category_mappings:
   - indexer_cat: Other
     torznab_cat: 8000

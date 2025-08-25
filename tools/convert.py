@@ -99,6 +99,11 @@ def convert_jackett_to_scarf(jackett_data):
         }
     }
     
+    # --- NEW: Directly copy the modes block ---
+    jackett_modes = jackett_data.get('caps', {}).get('modes', {})
+    if jackett_modes:
+        scarf_search['modes'] = jackett_modes
+
     # --- NEW: Convert Headers ---
     jackett_headers = search_info.get('headers')
     if jackett_headers:
@@ -122,33 +127,8 @@ def convert_jackett_to_scarf(jackett_data):
     
     # Build URL with query parameters from Jackett's 'inputs'
     url_template = f"{base_url}/{search_path}"
-    params = {}
-    for key, value in search_info.get('inputs', {}).items():
-        if isinstance(value, str):
-            # Convert Jackett's template syntax to Scarf's Go template syntax
-            value = value.replace(' .Keywords ', '.Query').replace(' .Config.', '.Config.')
-            # A simplified replacement for complex Jackett logic
-            if '{{' in value:
-                params[key] = value
-            elif key != 'page': # Exclude static 'page' key from params
-                params[key] = value
-
-    # Construct the final URL template for Scarf
-    param_strings = []
-    for key, value in params.items():
-        # Handle templated values
-        if '{{' in value:
-            # Clean up the template for Go
-            go_template = re.sub(r'\{\{\s*if\s+\.Query\.Artist\s*\}\}(.*?)\{\{ else \}\}(.*?)\{\{ end \}\}','{{.Query}}', value)
-            go_template = re.sub(r'\{\{\s*if\s+\.Query\.IMDBID\s*\}\}.*?\{\{ else \}\}(.*?)\{\{ end \}\}', r'{{.Query}}', go_template)
-            go_template = go_template.replace('{{ range .Categories }}{{.}};{{end}}', '{{.Category}}')
-            param_strings.append(f"{key}={go_template}")
-        else:
-            param_strings.append(f"{key}={value}")
-
-    if param_strings:
-        url_template += "?" + "&".join(param_strings)
-        
+    
+    # Simplified URL template construction
     scarf_search['urls'].append(url_template)
 
     # --- Field Selectors ---

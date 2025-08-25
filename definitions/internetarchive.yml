@@ -36,6 +36,12 @@ search:
         selector: "1"
       publish_date:
         selector: "publicdate"
+  modes:
+    search: [q]
+    tv-search: [q, season, ep]
+    movie-search: [q]
+    music-search: [q]
+    book-search: [q]
 # Mapeo de las categorías de Internet Archive a las estándar de Torznab.
 category_mappings:
   - indexer_cat: "audio"

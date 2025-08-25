@@ -38,6 +38,9 @@ search:
         selector: "peers"
       publish_date:
         selector: "date_uploaded_unix"
+  modes:
+    search: [q]
+    movie-search: [q, imdbid]
 
 category_mappings:
   - indexer_cat: "720p"

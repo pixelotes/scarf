@@ -642,12 +642,12 @@ func (m *Manager) getClient(key string) *http.Client {
 
 // Test performs a simple search to test if an indexer is working
 func (m *Manager) Test(ctx context.Context, indexerKey string) error {
-	_, err := m.Search(ctx, indexerKey, "test", "")
+	_, err := m.Search(ctx, indexerKey, SearchParams{Query: "test"})
 	return err
 }
 
-// Search queries a specific indexer.
-func (m *Manager) Search(ctx context.Context, indexerKey, query, category string) ([]SearchResult, error) {
+// Search queries a specific indexer using the appropriate search mode.
+func (m *Manager) Search(ctx context.Context, indexerKey string, params SearchParams) ([]SearchResult, error) {
 	def, ok := m.GetIndexer(indexerKey)
 	if !ok {
 		return nil, fmt.Errorf("indexer '%s' not found", indexerKey)
@@ -663,10 +663,26 @@ func (m *Manager) Search(ctx context.Context, indexerKey, query, category string
 		}
 	}
 
-	slog.Debug("Starting search", "indexer", def.Name, "query", query, "category", category)
+	slog.Debug("Starting search", "indexer", def.Name, "query", params.Query, "imdbid", params.IMDBID, "season", params.Season, "ep", params.Episode)
 
-	indexerCategory := category
-	if catID, err := strconv.Atoi(category); err == nil {
+	// Determine which search mode to use
+	var urls []string
+	if params.IMDBID != "" {
+		if _, ok := def.Search.Modes["movie-search"]; ok {
+			urls = def.Search.URLs
+		}
+	} else if params.Season > 0 && params.Episode > 0 {
+		if _, ok := def.Search.Modes["tv-search"]; ok {
+			urls = def.Search.URLs
+		}
+	}
+	// Fallback to default search
+	if len(urls) == 0 {
+		urls = def.Search.URLs
+	}
+
+	indexerCategory := params.Category
+	if catID, err := strconv.Atoi(params.Category); err == nil {
 		for _, mapping := range def.CategoryMappings {
 			if mapping.TorznabCategory == catID {
 				indexerCategory = mapping.IndexerCategory
@@ -681,10 +697,13 @@ func (m *Manager) Search(ctx context.Context, indexerKey, query, category string
 		Query    string
 		Config   map[string]string
 		Category string
-	}{query, def.UserConfig, indexerCategory}
+		IMDBID   string
+		Season   int
+		Episode  int
+	}{params.Query, def.UserConfig, indexerCategory, params.IMDBID, params.Season, params.Episode}
 
 	var lastErr error
-	for _, urlTemplate := range def.Search.URLs {
+	for _, urlTemplate := range urls {
 		baseURL, err := m.executeTemplate(urlTemplate, tplData)
 		if err != nil {
 			lastErr = fmt.Errorf("invalid URL template '%s': %w", urlTemplate, err)
@@ -725,7 +744,7 @@ func (m *Manager) Search(ctx context.Context, indexerKey, query, category string
 		}
 
 		if useFlareSolverr {
-			if def.Login.URL != "" { // Ensure session exists for private trackers
+			if def.Login.URL != "" {
 				if err := m.ensureFlareSolverrSession(ctx, def); err != nil {
 					return nil, err
 				}
@@ -743,7 +762,6 @@ func (m *Manager) Search(ctx context.Context, indexerKey, query, category string
 			if method == "POST" {
 				payload["postData"] = reqBody
 			}
-			// Add cookies if they are defined in the settings
 			if cookie, ok := def.UserConfig["cookie"]; ok && cookie != "" {
 				payload["cookies"] = parseCookieString(cookie)
 			}
@@ -762,7 +780,6 @@ func (m *Manager) Search(ctx context.Context, indexerKey, query, category string
 				}
 				req.Header.Set("Content-Type", contentType)
 			}
-			// Add custom search headers, only if they are defined
 			if def.Search.Headers != nil {
 				for key, valTpl := range def.Search.Headers {
 					val, _ := m.executeTemplate(valTpl, tplData)

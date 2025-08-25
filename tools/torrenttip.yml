@@ -1,0 +1,80 @@
+key: torrenttip
+name: Torrenttip
+description: "Torrenttip (\uD1A0\uB80C\uD2B8\uD301) is a Public KOREAN tracker for\
+  \ Korean media."
+type: public
+enabled: true
+language: ko-KR
+schedule: '@hourly'
+settings:
+- name: use_flaresolverr
+  type: checkbox
+  label: Use FlareSolverr
+  default: 'false'
+search:
+  type: html
+  urls:
+  - https://torrenttip190.top/search
+  params: {}
+  results:
+    rows_selector: ul.page-list > li:has(a[href$=".html"][title])
+    fields:
+      title:
+        selector: a[href$=".html"][title]@title
+      details_url:
+        selector: a[href$=".html"][title]@href
+      download_url:
+        selector: a[href$=".html"][title]@href
+      publish_date:
+        selector: div:nth-child(3)
+  modes:
+    search:
+    - q
+    tv-search:
+    - q
+    - season
+    - ep
+    movie-search:
+    - q
+    music-search:
+    - q
+    book-search:
+    - q
+  headers:
+    User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
+      like Gecko) Chrome/87.0.4280.88 Safari/537.35
+category_mappings:
+- indexer_cat: "\uD55C\uAD6D\uC601\uD654"
+  torznab_cat: 2000
+- indexer_cat: "\uD574\uC678\uC601\uD654"
+  torznab_cat: 2010
+- indexer_cat: "\uD574\uC678\uB4DC\uB77C\uB9C8"
+  torznab_cat: 5000
+- indexer_cat: "\uD55C\uAD6D\uB4DC\uB77C\uB9C8"
+  torznab_cat: 5000
+- indexer_cat: "\uB137\uD50C\uB9AD\uC2A4 \uC601\uD654"
+  torznab_cat: 2000
+- indexer_cat: "\uB137\uD50C\uB9AD\uC2A4 \uC2DC\uB9AC\uC988"
+  torznab_cat: 5000
+- indexer_cat: "\uC608\uB2A5\xB7\uC624\uB77D"
+  torznab_cat: 3020
+- indexer_cat: "\uB2E4\uD050\xB7\uAD50\uC591"
+  torznab_cat: 5070
+- indexer_cat: "\uC2A4\uD3EC\uCE20"
+  torznab_cat: 5070
+- indexer_cat: "\uC74C\uC545"
+  torznab_cat: 3000
+- indexer_cat: "\uC720\uC544\xB7\uC5B4\uB9B0\uC774"
+  torznab_cat: 5000
+- indexer_cat: "\uC720\uD29C\uBE0C"
+  torznab_cat: 5000
+- indexer_cat: "\uC560\uB2C8\uBA54\uC774\uC158"
+  torznab_cat: 5080
+- indexer_cat: "\uB9CC\uD654"
+  torznab_cat: 7030
+- indexer_cat: "\uAC8C\uC784"
+  torznab_cat: 1000
+- indexer_cat: "\uBAA8\uBC14\uC77C"
+  torznab_cat: 4040
+- indexer_cat: "\uC720\uD2F8\uB9AC\uD2F0"
+  torznab_cat: 4000

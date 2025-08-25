@@ -65,13 +65,14 @@ type FieldDefinition struct {
 
 // SearchDefinition defines how to query a tracker's API
 type SearchDefinition struct {
-	Type        string            `yaml:"type"`
-	URLs        []string          `yaml:"urls"`
-	Method      string            `yaml:"method"`
-	Body        string            `yaml:"body"`
-	ContentType string            `yaml:"content_type"`
-	Params      map[string]string `yaml:"params"`
-	Headers     map[string]string `yaml:"headers,omitempty"` // Added this line
+	Type        string              `yaml:"type"`
+	URLs        []string            `yaml:"urls"`
+	Method      string              `yaml:"method"`
+	Body        string              `yaml:"body"`
+	ContentType string              `yaml:"content_type"`
+	Params      map[string]string   `yaml:"params"`
+	Headers     map[string]string   `yaml:"headers,omitempty"`
+	Modes       map[string][]string `yaml:"modes,omitempty"`
 	Results     struct {
 		Path             string          `yaml:"path"`
 		SubPath          string          `yaml:"sub_path"`
@@ -121,4 +122,16 @@ type SearchResult struct {
 	Seeders     int       `json:"Seeders"`
 	Leechers    int       `json:"Leechers"`
 	PublishDate time.Time `json:"PublishDate"`
+}
+
+// SearchParams holds all possible search parameters from Torznab requests
+type SearchParams struct {
+	Query    string
+	Category string
+	IMDBID   string
+	TVDBID   string
+	RID      string
+	Season   int
+	Episode  int
+	GUID     string
 }

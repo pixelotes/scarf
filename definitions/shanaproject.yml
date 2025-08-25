@@ -34,6 +34,9 @@ search:
         selector: "1"
       leechers:
         selector: "1"
+  modes:
+    search: [q]
+    tv-search: [q, season, ep]
 category_mappings:
   - indexer_cat: "Anime"
     torznab_cat: 5080
