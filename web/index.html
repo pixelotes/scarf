@@ -58,6 +58,10 @@
         .status-card-actions { margin-top: 1rem; display: flex; gap: 0.5rem; }
         .status-card-actions button { font-size: 0.8rem; padding: 0.5rem; }
         .flexget-url { margin-top: 1rem; }
+        #flexget-url-input {
+            width: 50%;
+            box-sizing: border-box; /* Ensures padding doesn't add to the width */
+        }
         .tracker-type-tag {
             background-color: var(--primary-color);
             padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; text-transform: capitalize;
@@ -188,23 +192,33 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            // --- App State ---
+            const state = {
+                sessionToken: '',
+                allIndexersData: {},
+                allResults: [], // Changed back to allResults
+                currentPage: 1,
+                resultsPerPage: 50,
+                currentSort: { key: 'Seeders', direction: 'desc' },
+                currentSearch: { indexer: 'all', query: '', cat: '' },
+                isLoading: false,
+            };
+    
+            // --- DOM Elements ---
             const loginScreen = document.getElementById('login-screen');
-            const loginForm = document.getElementById('login-form');
-            const passwordInput = document.getElementById('password-input');
-            const loginError = document.getElementById('login-error');
             const appContainer = document.getElementById('app-container');
-            let sessionToken = '';
-            let allIndexersData = {}; // Cache for indexer data
-
-            // --- State Management for Search Results ---
-            let allResults = [];
-            let currentPage = 1;
-            const resultsPerPage = 50;
-            let currentSort = { key: 'Seeders', direction: 'desc' };
-
+            const loginForm = document.getElementById('login-form');
+            const searchForm = document.getElementById('search-form');
+            const resultsTable = document.getElementById('results-table');
+            const resultsBody = document.getElementById('results-body');
+            const searchStatus = document.getElementById('search-status');
+            const paginationControls = document.getElementById('pagination-controls');
+    
             // --- AUTHENTICATION ---
             loginForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
+                const passwordInput = document.getElementById('password-input');
+                const loginError = document.getElementById('login-error');
                 loginError.textContent = '';
                 try {
                     const response = await fetch('/api/v1/login', {
@@ -214,7 +228,7 @@
                     });
                     if (!response.ok) throw new Error('Incorrect password');
                     const { token } = await response.json();
-                    sessionToken = token;
+                    state.sessionToken = token;
                     loginScreen.style.display = 'none';
                     appContainer.style.display = 'block';
                     initializeApp();
@@ -233,10 +247,10 @@
                         document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === pageId));
                     }
                 });
-                document.getElementById('search-form').addEventListener('submit', handleSearchSubmit);
+                searchForm.addEventListener('submit', handleSearchSubmit);
                 document.querySelector('#results-table thead').addEventListener('click', handleSortClick);
-                document.getElementById('prev-page-btn').addEventListener('click', () => { if (currentPage > 1) { currentPage--; renderCurrentPage(); } });
-                document.getElementById('next-page-btn').addEventListener('click', () => { const totalPages = Math.ceil(allResults.length / resultsPerPage); if (currentPage < totalPages) { currentPage++; renderCurrentPage(); } });
+                document.getElementById('prev-page-btn').addEventListener('click', () => { if (state.currentPage > 1) { state.currentPage--; renderCurrentPage(); } });
+                document.getElementById('next-page-btn').addEventListener('click', () => { const totalPages = Math.ceil(state.allResults.length / state.resultsPerPage); if (state.currentPage < totalPages) { state.currentPage++; renderCurrentPage(); } });
                 
                 setupSettingsModal();
                 loadInitialData();
@@ -244,64 +258,96 @@
                 document.getElementById('type-filter').addEventListener('change', renderStatusGrid);
             }
             
-            // --- DATA LOADING & CACHING ---
+            // --- DATA LOADING & API CALLS ---
             async function loadInitialData() {
                 await fetchIndexerData();
                 populateIndexerDropdown();
                 renderStatusGrid();
                 setupFlexgetURL();
             }
-
+    
             async function fetchIndexerData() {
                 const response = await fetchWithAuth('/api/v1/indexers');
-                allIndexersData = await response.json();
+                state.allIndexersData = await response.json();
             }
-
-            // --- EVENT HANDLERS & API CALLERS ---
-            async function handleSearchSubmit(e) {
+    
+            function handleSearchSubmit(e) {
                 e.preventDefault();
                 const formData = new FormData(e.target);
-                const indexer = formData.get('indexer');
-                const query = formData.get('q');
-                const cat = formData.get('cat');
-                const searchStatus = document.getElementById('search-status');
-                
-                searchStatus.textContent = 'Searching...';
-                searchStatus.style.display = 'block';
-                document.getElementById('results-table').style.display = 'none';
-                document.getElementById('pagination-controls').style.display = 'none';
-                
+                state.currentSearch.indexer = formData.get('indexer');
+                state.currentSearch.query = formData.get('q');
+                state.currentSearch.cat = formData.get('cat');
+                state.currentSort = state.currentSearch.indexer === 'all' ? { key: 'Seeders', direction: 'desc' } : { key: 'PublishDate', direction: 'desc' };
+                fetchAllResults();
+            }
+    
+            async function fetchAllResults() {
+                if (state.isLoading) return;
+    
+                state.isLoading = true;
+                state.allResults = [];
+                state.currentPage = 1;
+                updateUIBeforeFetch();
+    
+                const { indexer, query, cat } = state.currentSearch;
+                const limit = 200; // Use max limit to reduce number of requests
+                let offset = 0;
+                let total = 0;
+    
                 try {
-                    const response = await fetchWithAuth(`/api/v1/search?indexer=${indexer}&q=${encodeURIComponent(query)}&cat=${cat}`);
-                    if (!response.ok) throw new Error((await response.json()).error || 'Search request failed');
-                    allResults = await response.json() || [];
-                    currentSort = indexer === 'all' ? { key: 'Seeders', direction: 'desc' } : { key: 'PublishDate', direction: 'desc' };
-                    currentPage = 1;
+                    do {
+                        const url = `/api/v1/search?indexer=${indexer}&q=${encodeURIComponent(query)}&cat=${cat}&limit=${limit}&offset=${offset}`;
+                        const response = await fetchWithAuth(url);
+                        const data = await response.json();
+    
+                        if (!response.ok) throw new Error(data.error || 'Search request failed');
+                        
+                        if (data.results && data.results.length > 0) {
+                            state.allResults.push(...data.results);
+                        }
+                        total = data.total;
+                        offset += limit;
+                        
+                        searchStatus.textContent = `Searching... (${state.allResults.length} / ${total} results)`;
+    
+                    } while (state.allResults.length < total);
+    
                     renderCurrentPage();
+    
                 } catch (error) {
                     searchStatus.textContent = `Error: ${error.message}`;
+                    searchStatus.style.display = 'block';
+                } finally {
+                    state.isLoading = false;
                 }
             }
-
+            
+            // --- UI RENDERING & EVENT HANDLERS ---
+            function updateUIBeforeFetch() {
+                searchStatus.textContent = 'Searching...';
+                searchStatus.style.display = 'block';
+                resultsTable.style.display = 'none';
+                paginationControls.style.display = 'none';
+            }
+    
             function handleSortClick(e) {
                 const header = e.target.closest('.sortable');
                 if (!header) return;
                 const sortKey = header.dataset.sort;
-                if (currentSort.key === sortKey) {
-                    currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+                if (state.currentSort.key === sortKey) {
+                    state.currentSort.direction = state.currentSort.direction === 'asc' ? 'desc' : 'asc';
                 } else {
-                    currentSort.key = sortKey;
-                    currentSort.direction = ['Size', 'Seeders', 'Leechers', 'PublishDate'].includes(sortKey) ? 'desc' : 'asc';
+                    state.currentSort.key = sortKey;
+                    state.currentSort.direction = ['Size', 'Seeders', 'Leechers', 'PublishDate'].includes(sortKey) ? 'desc' : 'asc';
                 }
-                currentPage = 1;
+                state.currentPage = 1; // Reset to first page after sorting
                 renderCurrentPage();
             }
             
-            // --- UI RENDERING ---
             function populateIndexerDropdown() {
                 const indexerSelect = document.getElementById('indexer-select');
                 indexerSelect.innerHTML = '<option value="all">All Indexers</option>';
-                Object.entries(allIndexersData).sort(([,a],[,b]) => a.name.localeCompare(b.name)).forEach(([key, indexer]) => {
+                Object.entries(state.allIndexersData).sort(([,a],[,b]) => a.name.localeCompare(b.name)).forEach(([key, indexer]) => {
                     if (indexer.enabled) {
                         const option = document.createElement('option');
                         option.value = key;
@@ -312,19 +358,19 @@
                 updateCategoryDropdown();
                 indexerSelect.addEventListener('change', updateCategoryDropdown);
             }
-
+    
             function updateCategoryDropdown() {
                 const categorySelect = document.getElementById('category-select');
                 const selectedIndexerKey = document.getElementById('indexer-select').value;
                 categorySelect.innerHTML = '<option value="">All Categories</option>';
-
+    
                 let categories = {};
                 if (selectedIndexerKey === 'all') {
-                    Object.values(allIndexersData).forEach(idx => {
+                    Object.values(state.allIndexersData).forEach(idx => {
                         if (idx.enabled) Object.assign(categories, idx.categories);
                     });
-                } else if (allIndexersData[selectedIndexerKey]) {
-                    categories = allIndexersData[selectedIndexerKey].categories;
+                } else if (state.allIndexersData[selectedIndexerKey]) {
+                    categories = state.allIndexersData[selectedIndexerKey].categories;
                 }
                 
                 Object.entries(categories).sort(([,a],[,b]) => a.localeCompare(b)).forEach(([id, name]) => {
@@ -340,9 +386,9 @@
                 const filter = document.getElementById('type-filter').value;
                 statusGrid.innerHTML = '';
                 
-                Object.entries(allIndexersData).forEach(([key, indexer]) => {
+                Object.entries(state.allIndexersData).forEach(([key, indexer]) => {
                     if (filter !== 'all' && indexer.type !== filter) return;
-
+    
                     const card = document.createElement('div');
                     card.className = 'status-card';
                     card.innerHTML = `
@@ -361,7 +407,7 @@
                     `;
                     statusGrid.appendChild(card);
                 });
-
+    
                 statusGrid.onclick = handleStatusGridClick;
                 statusGrid.onchange = handleStatusGridChange;
                 document.getElementById('test-all-btn').onclick = () => document.querySelectorAll('.test-btn').forEach(btn => btn.click());
@@ -382,14 +428,13 @@
                         if (name !== 'key') config[name] = value;
                     });
                     
-                    // Handle unchecked checkboxes
-                    const indexer = allIndexersData[key];
+                    const indexer = state.allIndexersData[key];
                     indexer.settings?.forEach(setting => {
                         if (setting.type === 'checkbox' && !config.hasOwnProperty(setting.name)) {
                             config[setting.name] = "false";
                         }
                     });
-
+    
                     const statusEl = document.getElementById('settings-modal-status');
                     statusEl.textContent = 'Saving...';
                     
@@ -400,7 +445,7 @@
                         if (!response.ok) throw new Error('Failed to save configuration.');
                         
                         statusEl.textContent = '✅ Saved successfully!';
-                        await fetchIndexerData(); // Refresh data from backend
+                        await fetchIndexerData();
                         setTimeout(() => modal.style.display = "none", 1500);
                     } catch (error) {
                          statusEl.textContent = `Error: ${error.message}`;
@@ -409,9 +454,9 @@
             }
             
             function openSettingsModal(key) {
-                const indexer = allIndexersData[key];
+                const indexer = state.allIndexersData[key];
                 if (!indexer) return;
-
+    
                 const modal = document.getElementById('settings-modal');
                 const form = document.getElementById('settings-modal-form');
                 
@@ -419,21 +464,19 @@
                 document.getElementById('settings-modal-desc').textContent = indexer.description;
                 document.getElementById('settings-modal-status').textContent = '';
                 
-                // Clear old form and add hidden key input
                 form.innerHTML = `<input type="hidden" name="key" value="${key}">`;
                 
-                // Dynamically build form
                 indexer.settings?.forEach(setting => {
                     const group = document.createElement('div');
                     group.className = 'form-group';
-
+    
                     const label = document.createElement('label');
                     label.htmlFor = `setting-${setting.name}`;
                     label.textContent = setting.label;
                     
                     let input;
                     const currentValue = indexer.user_config[setting.name] || setting.default;
-
+    
                     switch(setting.type) {
                         case 'select':
                             input = document.createElement('select');
@@ -460,7 +503,7 @@
                             group.appendChild(input);
                             group.appendChild(label);
                             break;
-                        default: // text, password
+                        default:
                             input = document.createElement('input');
                             input.type = setting.type;
                             input.id = `setting-${setting.name}`;
@@ -472,20 +515,19 @@
                     }
                     form.appendChild(group);
                 });
-
+    
                 const submitButton = document.createElement('button');
                 submitButton.type = 'submit';
                 submitButton.textContent = 'Save Configuration';
                 form.appendChild(submitButton);
-
+    
                 modal.style.display = 'flex';
             }
-
-            // --- Click/Change Handlers for Status Grid ---
+    
             async function handleStatusGridClick(e) {
                 const key = e.target.dataset.key;
                 if (!key) return;
-
+    
                 if (e.target.matches('.test-btn')) {
                     const statusText = document.getElementById(`status-text-${key}`);
                     statusText.textContent = 'Testing...';
@@ -510,23 +552,18 @@
                             method: 'POST', body: JSON.stringify({ key, enabled })
                         });
                         if (!response.ok) throw new Error('Failed to toggle indexer');
-                        allIndexersData[key].enabled = enabled; // Update local state
-                        populateIndexerDropdown(); // Refresh dropdown
+                        state.allIndexersData[key].enabled = enabled;
+                        populateIndexerDropdown();
                     } catch (error) {
                         console.error(error);
-                        e.target.checked = !enabled; // Revert on error
+                        e.target.checked = !enabled;
                     }
                 }
             }
             
-            // --- Helper Functions ---
+            // --- RENDER & HELPER Functions ---
             function renderCurrentPage() {
-                const searchStatus = document.getElementById('search-status');
-                const resultsTable = document.getElementById('results-table');
-                const resultsBody = document.getElementById('results-body');
-                const paginationControls = document.getElementById('pagination-controls');
-                
-                if (!allResults || allResults.length === 0) {
+                if (!state.allResults || state.allResults.length === 0) {
                     searchStatus.textContent = 'No results found.';
                     searchStatus.style.display = 'block';
                     resultsTable.style.display = 'none';
@@ -534,15 +571,14 @@
                     return;
                 }
                 
-                sortResults();
+                sortResults(state.allResults);
                 
                 searchStatus.style.display = 'none';
                 resultsTable.style.display = 'table';
                 resultsBody.innerHTML = '';
-
-                const totalPages = Math.ceil(allResults.length / resultsPerPage);
-                const pageResults = allResults.slice((currentPage - 1) * resultsPerPage, currentPage * resultsPerPage);
-
+    
+                const pageResults = state.allResults.slice((state.currentPage - 1) * state.resultsPerPage, state.currentPage * state.resultsPerPage);
+    
                 pageResults.forEach(item => {
                     const row = resultsBody.insertRow();
                     row.innerHTML = `
@@ -557,42 +593,43 @@
                             </a>
                         </td>`;
                 });
-
-                document.getElementById('page-info').textContent = `Page ${currentPage} of ${totalPages}`;
-                document.getElementById('prev-page-btn').disabled = currentPage === 1;
-                document.getElementById('next-page-btn').disabled = currentPage === totalPages;
+    
+                const totalPages = Math.ceil(state.allResults.length / state.resultsPerPage);
+                document.getElementById('page-info').textContent = `Page ${state.currentPage} of ${totalPages}`;
+                document.getElementById('prev-page-btn').disabled = state.currentPage === 1;
+                document.getElementById('next-page-btn').disabled = state.currentPage === totalPages;
                 paginationControls.style.display = 'flex';
                 
                 document.querySelectorAll('#results-table thead th.sortable').forEach(th => {
                     const sortKey = th.dataset.sort;
                     const arrow = th.querySelector('.sort-arrow');
-                    th.classList.toggle('active', sortKey === currentSort.key);
-                    if (sortKey === currentSort.key) arrow.innerHTML = currentSort.direction === 'asc' ? '▲' : '▼';
+                    th.classList.toggle('active', sortKey === state.currentSort.key);
+                    if (sortKey === state.currentSort.key) arrow.innerHTML = state.currentSort.direction === 'asc' ? '▲' : '▼';
                     else arrow.innerHTML = '';
                 });
             }
-
-            function sortResults() {
-                const { key, direction } = currentSort;
+    
+            function sortResults(results) {
+                const { key, direction } = state.currentSort;
                 const dir = direction === 'asc' ? 1 : -1;
-                allResults.sort((a, b) => {
+                results.sort((a, b) => {
                     const valA = a[key];
                     const valB = b[key];
                     if (typeof valA === 'string') return valA.localeCompare(valB) * dir;
                     return (valA - valB) * dir;
                 });
             }
-
+    
             async function setupFlexgetURL() {
                 const flexgetRes = await fetchWithAuth('/api/v1/flexget_key');
                 const flexgetData = await flexgetRes.json();
                 document.getElementById('flexget-url-input').value = `${window.location.origin}/torznab/all?apikey=${flexgetData.key}`;
             }
-
+    
             function setupLogViewer() {
                 const logContainer = document.getElementById('log-container');
                 const logFilter = document.getElementById('log-filter');
-                const ws = new WebSocket(`ws://${window.location.host}/api/v1/logs?token=${sessionToken}`);
+                const ws = new WebSocket(`ws://${window.location.host}/api/v1/logs?token=${state.sessionToken}`);
                 ws.onmessage = (event) => {
                     const logLine = document.createElement('div');
                     logLine.className = 'log-line';
@@ -611,16 +648,16 @@
                     });
                 }
             }
-
+    
             async function fetchWithAuth(url, options = {}) {
                 const headers = { ...options.headers };
-                headers['Authorization'] = `Bearer ${sessionToken}`;
+                headers['Authorization'] = `Bearer ${state.sessionToken}`;
                 if (options.body) headers['Content-Type'] = 'application/json';
                 const response = await fetch(url, { ...options, headers });
                 if (response.status === 401) window.location.reload();
                 return response;
             }
-
+    
             function formatBytes(bytes, decimals = 2) {
                 if (!bytes) return '0 Bytes';
                 const k = 1024;

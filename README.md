@@ -56,18 +56,20 @@ After running the command, Scarf will be accessible at `http://localhost:8080`.
 
 Scarf is configured using environment variables. Here are the most important ones:
 
-| Variable          | Description                                                                 | Default                      |
-| ----------------- | --------------------------------------------------------------------------- | ---------------------------- |
-| `APP_PORT`        | The port the application will listen on.                                    | `8080`                       |
-| `DEFINITIONS_PATH`| Path to the indexer definition files.                                       | `./definitions`              |
-| `CACHE_TTL`       | How long to cache search results.                                           | `15m`                        |
-| `DB_PATH`         | Path to the SQLite database file for the cache.                             | `./data/indexer-cache.db`    |
-| `WEB_UI`          | Enable or disable the web UI.                                               | `true`                       |
-| `DEBUG`           | Enable debug logging.                                                       | `false`                      |
-| `UI_PASSWORD`     | Password to protect the web UI. **Set this!** | `password`                   |
-| `FLEXGET_API_KEY` | The API key for accessing the Torznab feed.                                 | (auto-generated 16 chars)    |
-| `JWT_SECRET`      | A secret key for signing session tokens.                                    | (auto-generated 32 chars)    |
-| `FLARESOLVERR_URL` | The url pointing to the FlareSolverr service |  |
+| Variable            | Description                                                                 | Default                      |
+| ------------------- | --------------------------------------------------------------------------- | ---------------------------- |
+| `APP_PORT`          | The port the application will listen on.                                    | `8080`                       |
+| `DEFINITIONS_PATH`  | Path to the indexer definition files.                                       | `./definitions`              |
+| `CACHE_TTL`         | How long to cache search results.                                           | `15m`                        |
+| `DB_PATH`           | Path to the SQLite database file for the cache.                             | `./data/indexer-cache.db`    |
+| `WEB_UI`            | Enable or disable the web UI.                                               | `true`                       |
+| `DEBUG`             | Enable debug logging.                                                       | `false`                      |
+| `UI_PASSWORD`       | Password to protect the web UI. **Set this!** | `password`                   |
+| `FLEXGET_API_KEY`   | The API key for accessing the Torznab feed.                                 | (auto-generated 16 chars)    |
+| `JWT_SECRET`        | A secret key for signing session tokens.                                    | (auto-generated 32 chars)    |
+| `FLARESOLVERR_URL`  | The url pointing to the FlareSolverr service                                |                              |
+| `DEFAULT_API_LIMIT` | Default number of results for API clients that don't support pagination.    | `100`                        |
+
 
 ---
 
@@ -100,30 +102,45 @@ The URL will look something like this: `http://your-scarf-address:8080/torznab/a
 
 Scarf's real power comes from its YAML-based definition files. You can find them in the `definitions` directory. Each file defines how to search a specific torrent site.
 
-### Example Definition (`exampletracker.yml`)
+### Example Definition (`bitsearch.yml`)
+
+This example demonstrates a modern two-step HTML scraper.
 
 ```yaml
-key: "exampletracker"
-name: "ExampleTracker"
-description: "ExampleTracker is a Public site for MOVIES / TV / GENERAL"
+key: "bitsearch"
+name: "BitSearch"
+description: "BitSearch is a Public torrent meta-search engine"
+type: "public"
+enabled: true
 language: "en-US"
 schedule: "@every 1h"
-
+settings:
+- name: use_flaresolverr
+  type: checkbox
+  label: Use FlareSolverr
+  default: 'false'
 search:
   type: "html"
   urls:
-    - "[https://example-tracker.one/get-posts/](https://example-tracker.one/get-posts/){{if .Query}}keywords:{{.Query}}{{end}}"
-    - "[https://example-tracker.info/get-posts/](https://example-tracker.one/get-posts/){{if .Query}}keywords:{{.Query}}{{end}}"
+    - "[https://bitsearch.to/search?q=](https://bitsearch.to/search?q=){{.Query}}&sort=seeders&order=desc"
   results:
-    rows_selector: "div.tgxtablerow"
-    download_selector: "a[href^='magnet:?xt=']@href"
+    rows_selector: "div.space-y-4 > div.bg-white > div.items-start"
+    # This selector is for the second step: finding the magnet link on the details page.
+    download_selector: "a[href^='magnet:?xt']@href"
     fields:
       title:
-        selector: "a[href^='/post-detail/']@title"
-      # ... other fields
+        selector: "h3 > a"
+      # This tells the app where to go for the second step.
       details_url:
-        selector: "a[href^='/post-detail/']@href"
-
+        selector: "h3 > a@href"
+      size:
+        selector: "div.flex.flex-wrap > span:nth-child(2)  i.fas.fa-download ~ span"
+      seeders:
+        selector: " div.flex.flex-wrap  span.text-green-600 > span:nth-child(2)"
+      leechers:
+        selector: " div.flex.flex-wrap  span.text-red-600 > span:nth-child(2)"
+      publish_date:
+        selector: "div.space-y-2 > span:nth-child(3)"
 category_mappings:
   - indexer_cat: "Movies"
     torznab_cat: 2000

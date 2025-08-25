@@ -806,7 +806,6 @@ func (m *Manager) Search(ctx context.Context, indexerKey, query, category string
 	return nil, fmt.Errorf("all search attempts failed for indexer '%s', last error: %w", def.Name, lastErr)
 }
 
-// ... (The rest of the parsing helper functions remain unchanged)
 func (m *Manager) extractText(s *goquery.Selection, selector Selector) string {
 	selection := s.Find(selector.Selector)
 	if selector.Remove != "" {
@@ -822,6 +821,7 @@ func (m *Manager) extractAttr(s *goquery.Selection, selector Selector) string {
 	}
 	return m.extractText(s, selector)
 }
+
 func (m *Manager) parseHTMLResults(ctx context.Context, body io.Reader, def *Definition, baseURL string) ([]SearchResult, error) {
 	doc, err := goquery.NewDocumentFromReader(body)
 	if err != nil {
@@ -831,6 +831,10 @@ func (m *Manager) parseHTMLResults(ctx context.Context, body io.Reader, def *Def
 	var results []SearchResult
 	var wg sync.WaitGroup
 	resultsChan := make(chan SearchResult, 100)
+
+	// Use a buffered channel to act as a semaphore, limiting concurrent fetches to 10
+	concurrencyLimit := 10
+	semaphore := make(chan struct{}, concurrencyLimit)
 
 	doc.Find(def.Search.Results.RowsSelector).Each(func(i int, s *goquery.Selection) {
 		var sr SearchResult
@@ -850,8 +854,15 @@ func (m *Manager) parseHTMLResults(ctx context.Context, body io.Reader, def *Def
 		detailsURL := m.absURL(baseURL, m.extractAttr(s, fields.DetailsURL))
 		if detailsURL != "" && def.Search.Results.DownloadSelector != "" {
 			wg.Add(1)
+
+			// Acquire semaphore
+			semaphore <- struct{}{}
+
 			go func(searchResult SearchResult, detailURL string) {
 				defer wg.Done()
+				// Release semaphore when done
+				defer func() { <-semaphore }()
+
 				downloadSelector := Selector{Selector: def.Search.Results.DownloadSelector}
 				downloadURL, err := m.fetchDownloadLinkFromDetails(ctx, detailURL, downloadSelector, def)
 				if err != nil {
@@ -880,6 +891,7 @@ func (m *Manager) parseHTMLResults(ctx context.Context, body io.Reader, def *Def
 
 	return results, nil
 }
+
 func (m *Manager) fetchDownloadLinkFromDetails(ctx context.Context, detailURL string, selector Selector, def *Definition) (string, error) {
 	var resp *http.Response
 	var err error
