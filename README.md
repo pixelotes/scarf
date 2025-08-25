@@ -172,5 +172,14 @@ For more complex sites, you can use the details_url and download_selector fields
   - [X] Add dynamic config popup based on tracker-defined settings
   - [X] Add support for sending custom headers
 - [X] Add support for FlareSolverr (untested)
-- [ ] Add specific search modes (tv, movie, etc.)
-
+- [X] Add specific search modes (tv, movie, etc.)
+- [X] Store the results in a cache
+- [ ] Dynamic search modes list for "/all" endpoint (currently only shows basic search)
+- [ ] Implement custom rate limiting for trackers
+- [ ] Implement custom timeouts for trackers
+- [ ] Add custom server-side filtering (i.e. "&min_seeders=5" or "&min_size=1GB")
+- [ ] Add custom server-side sorting (i.e. "&sort=size&order=desc")
+  - [ ] Make sorting per seeders/desc the default
+- [ ] Add an statistics tab to the UI
+- [ ] Add recent searches to the UI (maybe in the search textbox)
+- [ ] Add webhook notifications for health checks (reuse the code from subtitlarr/go)
