@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"crypto/sha1"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -279,49 +278,35 @@ func (h *APIHandler) ToggleIndexer(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// searchAll performs a concurrent search across all indexers with cache support.
+// searchAll performs a concurrent search across all indexers with unified cache support
 func (h *APIHandler) searchAll(query, category string) ([]indexer.SearchResult, error) {
 	slog.Info("Starting aggregate search", "query", query, "category", category)
 	allIndexers := h.Manager.GetAllIndexers()
 
 	var wg sync.WaitGroup
-	resultsChan := make(chan []indexer.SearchResult, len(allIndexers))
 
+	// Track which indexers need live queries vs cache hits
 	liveQueryKeys := []string{}
+	totalResults := make(map[string][]indexer.SearchResult)
 
+	// Check cache for each enabled indexer
 	for key, def := range allIndexers {
 		if !def.Enabled {
 			continue
 		}
-		cacheKeyHash := sha1.Sum([]byte(fmt.Sprintf("%s:search:%s:%s", key, query, category)))
-		cacheKey := fmt.Sprintf("%x", cacheKeyHash)
 
-		if cachedXML, found := h.Cache.Get(cacheKey); found {
+		// Use unified cache structure
+		if cachedResults, found := GetCachedSearchResults(h.Cache, key, query, category); found {
 			slog.Info("Aggregate search served from cache for indexer", "indexer", def.Name, "query", query)
-			var feed RSSFeed
-			if xml.Unmarshal(cachedXML, &feed) == nil {
-				var cachedResults []indexer.SearchResult
-				for _, item := range feed.Channel.Items {
-					pubDate, _ := time.Parse(time.RFC1123Z, item.PublishDate)
-					// Correctly parse seeders/leechers from cached XML attributes
-					cachedResults = append(cachedResults, indexer.SearchResult{
-						Title:       item.Title,
-						DownloadURL: item.Link,
-						Size:        item.Size,
-						Seeders:     toInt(findAttr(item.Attrs, "seeders")),
-						Leechers:    toInt(findAttr(item.Attrs, "leechers")),
-						PublishDate: pubDate,
-					})
-				}
-				if len(cachedResults) > 0 {
-					resultsChan <- cachedResults
-				}
+			if len(cachedResults) > 0 {
+				totalResults[key] = cachedResults
 			}
 		} else {
 			liveQueryKeys = append(liveQueryKeys, key)
 		}
 	}
 
+	// Process live queries for cache misses
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -334,6 +319,7 @@ func (h *APIHandler) searchAll(query, category string) ([]indexer.SearchResult, 
 				slog.Warn("Rate limit exceeded during searchAll", "indexer", key)
 				return
 			}
+
 			slog.Info("Aggregate search (cache miss)", "indexer", key, "query", query)
 			results, err := h.Manager.Search(ctx, key, query, category)
 			if err != nil {
@@ -344,56 +330,68 @@ func (h *APIHandler) searchAll(query, category string) ([]indexer.SearchResult, 
 				}
 				return
 			}
+
 			if len(results) > 0 {
-				resultsChan <- results
-				// --- FIX: Cache the new results for next time ---
-				def, _ := h.Manager.GetIndexer(key)
-				cacheKeyHash := sha1.Sum([]byte(fmt.Sprintf("%s:search:%s:%s", key, query, category)))
-				cacheKey := fmt.Sprintf("%x", cacheKeyHash)
-				CacheRSSFeed(h.Cache, cacheKey, h.CacheTTL, def, results)
+				// Cache the results using unified cache structure
+				CacheSearchResults(h.Cache, key, query, category, results, h.CacheTTL)
+				totalResults[key] = results
 			}
 		}(indexerKey)
 	}
 
 	wg.Wait()
-	close(resultsChan)
 
+	// Combine all results and deduplicate
+	allResults := []indexer.SearchResult{}
+	for _, results := range totalResults {
+		allResults = append(allResults, results...)
+	}
+
+	// Deduplicate results
+	uniqueResults := h.deduplicateResults(allResults)
+
+	// Sort by publish date
+	sort.Slice(uniqueResults, func(i, j int) bool {
+		return uniqueResults[i].PublishDate.After(uniqueResults[j].PublishDate)
+	})
+
+	return uniqueResults, nil
+}
+
+// deduplicateResults removes duplicate search results
+func (h *APIHandler) deduplicateResults(results []indexer.SearchResult) []indexer.SearchResult {
 	uniqueResults := make(map[string]indexer.SearchResult)
-	for resultSet := range resultsChan {
-		for _, result := range resultSet {
-			isDuplicate := false
-			for existingKey, existingResult := range uniqueResults {
-				if similarTitles(result.Title, existingResult.Title) &&
-					abs(result.Size-existingResult.Size) < 100*1024*1024 {
-					isDuplicate = true
-					if result.Seeders > existingResult.Seeders {
-						delete(uniqueResults, existingKey)
-						break
-					} else {
-						break
-					}
+
+	for _, result := range results {
+		isDuplicate := false
+		for existingKey, existingResult := range uniqueResults {
+			if similarTitles(result.Title, existingResult.Title) &&
+				abs(result.Size-existingResult.Size) < 100*1024*1024 {
+				isDuplicate = true
+				// Keep the result with better seeders
+				if result.Seeders > existingResult.Seeders {
+					delete(uniqueResults, existingKey)
+					break
+				} else {
+					break
 				}
 			}
-			if !isDuplicate {
-				uniqueKey := fmt.Sprintf("%s-%d-%d", result.Title, result.Size, result.Seeders)
-				uniqueResults[uniqueKey] = result
-			}
+		}
+		if !isDuplicate {
+			uniqueKey := fmt.Sprintf("%s-%d-%d", result.Title, result.Size, result.Seeders)
+			uniqueResults[uniqueKey] = result
 		}
 	}
 
-	allResults := make([]indexer.SearchResult, 0, len(uniqueResults))
+	finalResults := make([]indexer.SearchResult, 0, len(uniqueResults))
 	for _, result := range uniqueResults {
-		allResults = append(allResults, result)
+		finalResults = append(finalResults, result)
 	}
 
-	sort.Slice(allResults, func(i, j int) bool {
-		return allResults[i].PublishDate.After(allResults[j].PublishDate)
-	})
-
-	return allResults, nil
+	return finalResults
 }
 
-// WebSearch handles search requests with enhanced caching and pagination
+// WebSearch handles search requests with unified caching and pagination
 func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 
@@ -401,7 +399,7 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	category := r.URL.Query().Get("cat")
 
-	// Parse pagination parameters with new logic
+	// Parse pagination parameters
 	limitStr := r.URL.Query().Get("perPage")
 	if limitStr == "" {
 		limitStr = r.URL.Query().Get("limit")
@@ -425,42 +423,56 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cacheKeyHash := sha1.Sum([]byte(fmt.Sprintf("json_search:%s:%s:%s",
-		indexerKey, query, category)))
-	cacheKey := fmt.Sprintf("%x", cacheKeyHash)
-
 	var results []indexer.SearchResult
 	var err error
 	var cacheHit bool
 
-	if !forceFresh && indexerKey != "all" {
-		if cachedJSON, found := h.Cache.Get(cacheKey); found {
-			var cachedResponse SearchResponse
-			if json.Unmarshal(cachedJSON, &cachedResponse) == nil {
-				slog.Info("Web search request served from cache", "indexer", indexerKey, "query", query, "key", cacheKey)
-				cachedResponse.CacheHit = true
-				cachedResponse.SearchTime = fmt.Sprintf("%.2f", float64(time.Since(startTime).Nanoseconds())/1e6)
+	// Check unified cache first (unless forcing fresh)
+	if !forceFresh {
+		if indexerKey == "all" {
+			results, err = h.searchAll(query, category)
+			// searchAll handles its own caching, so we consider this a cache operation
+			cacheHit = false // We'll let searchAll report individual cache hits
+		} else {
+			// Try unified cache for individual indexer
+			if cachedResults, found := GetCachedSearchResults(h.Cache, indexerKey, query, category); found {
+				slog.Info("Web search request served from cache", "indexer", indexerKey, "query", query)
+				results = cachedResults
+				cacheHit = true
+			} else {
+				// Cache miss - perform live search
+				slog.Info("Web search request (cache miss)", "indexer", indexerKey, "query", query, "category", category)
 
-				w.Header().Set("Content-Type", "application/json")
-				w.Header().Set("X-Cache", "HIT")
-				json.NewEncoder(w).Encode(cachedResponse)
-				return
+				limiter := h.getRateLimiter(indexerKey)
+				if !limiter.Allow() {
+					http.Error(w, `{"error": "Rate limit exceeded, please try again later"}`, http.StatusTooManyRequests)
+					return
+				}
+
+				results, err = h.Manager.Search(r.Context(), indexerKey, query, category)
+				if err == nil && len(results) > 0 {
+					// Cache the results using unified structure
+					CacheSearchResults(h.Cache, indexerKey, query, category, results, h.CacheTTL)
+				}
 			}
 		}
-	}
-
-	slog.Info("Web search request (cache miss)", "indexer", indexerKey, "query", query, "category", category, "force_fresh", forceFresh)
-
-	ctx := r.Context()
-	if indexerKey == "all" {
-		results, err = h.searchAll(query, category)
 	} else {
-		limiter := h.getRateLimiter(indexerKey)
-		if !limiter.Allow() {
-			http.Error(w, `{"error": "Rate limit exceeded, please try again later"}`, http.StatusTooManyRequests)
-			return
+		// Force fresh search
+		slog.Info("Web search request (forced fresh)", "indexer", indexerKey, "query", query, "category", category)
+
+		if indexerKey == "all" {
+			results, err = h.searchAll(query, category)
+		} else {
+			limiter := h.getRateLimiter(indexerKey)
+			if !limiter.Allow() {
+				http.Error(w, `{"error": "Rate limit exceeded, please try again later"}`, http.StatusTooManyRequests)
+				return
+			}
+			results, err = h.Manager.Search(r.Context(), indexerKey, query, category)
+			if err == nil && len(results) > 0 {
+				CacheSearchResults(h.Cache, indexerKey, query, category, results, h.CacheTTL)
+			}
 		}
-		results, err = h.Manager.Search(ctx, indexerKey, query, category)
 	}
 
 	if err != nil {
@@ -469,6 +481,7 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Apply pagination
 	total := len(results)
 	if offset >= total {
 		results = []indexer.SearchResult{}
@@ -490,14 +503,12 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 		Indexer:    indexerKey,
 	}
 
-	if indexerKey != "all" && len(results) > 0 {
-		if jsonResponse, err := json.Marshal(response); err == nil {
-			h.Cache.Set(cacheKey, jsonResponse, h.CacheTTL/2)
-		}
-	}
-
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Cache", "MISS")
+	if cacheHit {
+		w.Header().Set("X-Cache", "HIT")
+	} else {
+		w.Header().Set("X-Cache", "MISS")
+	}
 	json.NewEncoder(w).Encode(response)
 }
 
@@ -746,7 +757,7 @@ func (h *APIHandler) handleCaps(w http.ResponseWriter, r *http.Request, indexerK
 	w.Write([]byte(xml.Header + string(output)))
 }
 
-// handleSearch performs the actual search and returns RSS
+// handleSearch performs the actual search and returns RSS (updated for unified cache)
 func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexerKey string) {
 	query := r.URL.Query().Get("q")
 	category := r.URL.Query().Get("cat")
@@ -782,26 +793,19 @@ func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexe
 			return
 		}
 
-		cacheKeyHash := sha1.Sum([]byte(fmt.Sprintf("%s:search:%s:%s", indexerKey, query, category)))
-		cacheKey := fmt.Sprintf("%x", cacheKeyHash)
+		// Check if we have cached RSS XML first
+		if cachedXML, found := GetCachedRSSFeed(h.Cache, indexerKey, query, category); found {
+			slog.Info("Torznab request served from RSS cache", "indexer", indexerKey, "query", query)
+			w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+			w.Header().Set("X-Cache", "HIT")
+			w.Write(cachedXML)
+			return
+		}
 
-		if cachedXML, found := h.Cache.Get(cacheKey); found {
-			slog.Info("Torznab request served from cache", "indexer", indexerKey, "query", query, "key", cacheKey)
-			var feed RSSFeed
-			if xml.Unmarshal(cachedXML, &feed) == nil {
-				// Convert cached XML items back to SearchResult structs to allow for pagination
-				for _, item := range feed.Channel.Items {
-					pubDate, _ := time.Parse(time.RFC1123Z, item.PublishDate)
-					results = append(results, indexer.SearchResult{
-						Title:       item.Title,
-						DownloadURL: item.Link,
-						Size:        item.Size,
-						Seeders:     toInt(findAttr(item.Attrs, "seeders")),
-						Leechers:    toInt(findAttr(item.Attrs, "leechers")),
-						PublishDate: pubDate,
-					})
-				}
-			}
+		// Check unified cache for search results
+		if cachedResults, found := GetCachedSearchResults(h.Cache, indexerKey, query, category); found {
+			slog.Info("Torznab request served from unified cache", "indexer", indexerKey, "query", query)
+			results = cachedResults
 		} else {
 			slog.Info("Torznab request (cache miss)", "indexer", indexerKey, "query", query, "category", category)
 			results, err = h.Manager.Search(r.Context(), indexerKey, query, category)
@@ -810,16 +814,14 @@ func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexe
 				http.Error(w, "Failed to search indexer.", http.StatusInternalServerError)
 				return
 			}
-			// Cache the full, unpaginated results for future requests
-			defer func() {
-				if indexerKey != "all" {
-					CacheRSSFeed(h.Cache, cacheKey, h.CacheTTL, def, results)
-				}
-			}()
+			// Cache the results
+			if len(results) > 0 {
+				CacheSearchResults(h.Cache, indexerKey, query, category, results, h.CacheTTL)
+			}
 		}
 	}
 
-	// --- PAGINATION LOGIC (Applies to both live and cached results) ---
+	// Apply pagination to Torznab results
 	limitStr := r.URL.Query().Get("limit")
 	limit := h.DefaultAPILimit
 	if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
@@ -843,7 +845,7 @@ func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexe
 		results = results[offset:end]
 	}
 
-	// Generate RSS feed for the correctly paginated results
+	// Generate RSS feed for the paginated results
 	feed := NewRSSFeed(def)
 	for _, result := range results {
 		item := Item{
@@ -874,6 +876,7 @@ func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexe
 	finalOutput := []byte(xml.Header + string(output))
 
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.Header().Set("X-Cache", "MISS")
 	w.Write(finalOutput)
 }
 
