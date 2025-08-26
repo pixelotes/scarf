@@ -64,11 +64,12 @@ Scarf is configured using environment variables. Here are the most important one
 | `DB_PATH`           | Path to the SQLite database file for the cache.                             | `./data/indexer-cache.db`    |
 | `WEB_UI`            | Enable or disable the web UI.                                               | `true`                       |
 | `DEBUG`             | Enable debug logging.                                                       | `false`                      |
-| `UI_PASSWORD`       | Password to protect the web UI. **Set this!** | `password`                   |
+| `UI_PASSWORD`       | Password to protect the web UI. **Set this!**                               | `password`                   |
 | `FLEXGET_API_KEY`   | The API key for accessing the Torznab feed.                                 | (auto-generated 16 chars)    |
 | `JWT_SECRET`        | A secret key for signing session tokens.                                    | (auto-generated 32 chars)    |
 | `FLARESOLVERR_URL`  | The url pointing to the FlareSolverr service                                |                              |
 | `DEFAULT_API_LIMIT` | Default number of results for API clients that don't support pagination.    | `100`                        |
+| `ENABLE_CRONJOBS`   | Enables or disables the job that caches the latest tracker releases         | `true`                       |
 
 
 ---
