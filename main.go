@@ -24,6 +24,35 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
+// runScheduledSearch encapsulates the logic for a single scheduled indexer search.
+func runScheduledSearch(cfg *config.ConfigOptions, idxManager *indexer.Manager, appCache *cache.Cache, indexerKey string, indexerDef *indexer.Definition) {
+	slog.Info("Scheduler: Running job", "indexer", indexerDef.Name)
+	// Create a new context with the configured timeout
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.RequestTimeout*2) // Give scheduled jobs double timeout
+	defer cancel()
+
+	results, err := idxManager.Search(ctx, indexerKey, indexer.SearchParams{})
+	if err != nil {
+		slog.Error("Scheduler: Failed to fetch latest", "indexer", indexerDef.Name, "error", err)
+		return
+	}
+	slog.Info("Scheduler: Successfully fetched releases", "indexer", indexerDef.Name, "count", len(results))
+
+	if len(results) > 0 {
+		latestCacheKey := api.GenerateLatestCacheKey(indexerKey)
+		cachedResult := api.CachedSearchResult{
+			Results:    results,
+			CachedAt:   time.Now(),
+			IndexerKey: indexerKey,
+		}
+		if jsonData, err := json.Marshal(cachedResult); err == nil {
+			// Use the new dedicated TTL for 'latest' results
+			appCache.Set(latestCacheKey, jsonData, cfg.LatestCacheTTL)
+			slog.Debug("Scheduler: Cached latest results", "indexer", indexerDef.Name, "key", latestCacheKey)
+		}
+	}
+}
+
 func main() {
 	// Parse command line flags
 	var showHelp bool
@@ -137,31 +166,7 @@ func main() {
 				}
 				indexerKey, indexerDef := key, def
 				_, err := c.AddFunc(def.Schedule, func() {
-					slog.Info("Scheduler: Running job", "indexer", indexerDef.Name)
-					// Create a new context with the configured timeout
-					ctx, cancel := context.WithTimeout(context.Background(), cfg.RequestTimeout*2) // Give scheduled jobs double timeout
-					defer cancel()
-
-					results, err := idxManager.Search(ctx, indexerKey, indexer.SearchParams{})
-					if err != nil {
-						slog.Error("Scheduler: Failed to fetch latest", "indexer", indexerDef.Name, "error", err)
-						return
-					}
-					slog.Info("Scheduler: Successfully fetched releases", "indexer", indexerDef.Name, "count", len(results))
-
-					if len(results) > 0 {
-						latestCacheKey := api.GenerateLatestCacheKey(indexerKey)
-						cachedResult := api.CachedSearchResult{
-							Results:    results,
-							CachedAt:   time.Now(),
-							IndexerKey: indexerKey,
-						}
-						if jsonData, err := json.Marshal(cachedResult); err == nil {
-							// Use the new dedicated TTL for 'latest' results
-							appCache.Set(latestCacheKey, jsonData, cfg.LatestCacheTTL)
-							slog.Debug("Scheduler: Cached latest results", "indexer", indexerDef.Name, "key", latestCacheKey)
-						}
-					}
+					runScheduledSearch(cfg, idxManager, appCache, indexerKey, indexerDef)
 				})
 				if err != nil {
 					slog.Warn("Could not schedule job", "indexer", def.Name, "error", err)
@@ -180,6 +185,14 @@ func main() {
 
 		// Set up initial scheduled jobs
 		updateScheduledJobs()
+
+		// Trigger initial run of all scheduled jobs in the background
+		slog.Info("Scheduler: Performing initial run of all scheduled jobs...")
+		for key, def := range idxManager.GetAllIndexers() {
+			if def.Schedule != "" && def.Enabled {
+				go runScheduledSearch(cfg, idxManager, appCache, key, def)
+			}
+		}
 
 		// Set the reload callback for the indexer manager
 		idxManager.SetReloadCallback(updateScheduledJobs)
