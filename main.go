@@ -150,8 +150,6 @@ func main() {
 					slog.Info("Scheduler: Successfully fetched releases", "indexer", indexerDef.Name, "count", len(results))
 
 					if len(results) > 0 {
-						// Use a long TTL, e.g., 24 hours, as this is for the latest feed.
-						ttl := 24 * time.Hour
 						latestCacheKey := api.GenerateLatestCacheKey(indexerKey)
 						cachedResult := api.CachedSearchResult{
 							Results:    results,
@@ -159,7 +157,8 @@ func main() {
 							IndexerKey: indexerKey,
 						}
 						if jsonData, err := json.Marshal(cachedResult); err == nil {
-							appCache.Set(latestCacheKey, jsonData, ttl)
+							// Use the new dedicated TTL for 'latest' results
+							appCache.Set(latestCacheKey, jsonData, cfg.LatestCacheTTL)
 							slog.Debug("Scheduler: Cached latest results", "indexer", indexerDef.Name, "key", latestCacheKey)
 						}
 					}

@@ -17,6 +17,7 @@ type ConfigOptions struct {
 	AppPort            string
 	DefinitionsPath    string
 	CacheTTL           time.Duration
+	LatestCacheTTL     time.Duration
 	DBPath             string
 	WebUIEnabled       bool
 	DebugMode          bool
@@ -37,6 +38,7 @@ func GetConfig() (*ConfigOptions, error) {
 		AppPort:            GetEnv("APP_PORT", "8080"),
 		DefinitionsPath:    GetEnv("DEFINITIONS_PATH", "./definitions"),
 		CacheTTL:           GetEnvAsDuration("CACHE_TTL", 15*time.Minute),
+		LatestCacheTTL:     GetEnvAsDuration("LATEST_CACHE_TTL", 24*time.Hour),
 		DBPath:             GetEnv("DB_PATH", "./data/indexer-cache.db"),
 		WebUIEnabled:       GetEnvAsBool("WEB_UI", true),
 		DebugMode:          GetEnvAsBool("DEBUG", false),
@@ -74,6 +76,9 @@ func (c *ConfigOptions) Validate() error {
 	// Validate durations
 	if c.CacheTTL < time.Minute {
 		return fmt.Errorf("CACHE_TTL must be at least 1 minute, got: %s", c.CacheTTL)
+	}
+	if c.LatestCacheTTL < time.Hour {
+		return fmt.Errorf("LATEST_CACHE_TTL must be at least 1 hour, got: %s", c.LatestCacheTTL)
 	}
 	if c.RequestTimeout < time.Second {
 		return fmt.Errorf("REQUEST_TIMEOUT must be at least 1 second, got: %s", c.RequestTimeout)
