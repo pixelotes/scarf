@@ -121,7 +121,7 @@ func main() {
 
 	// --- Initialize Indexer Manager ---
 	slog.Info("Loading indexer definitions", "path", cfg.DefinitionsPath)
-	idxManager, err := indexer.NewManager(cfg.DefinitionsPath)
+	idxManager, err := indexer.NewManager(cfg.DefinitionsPath, cfg.MaxFailures)
 	if err != nil {
 		slog.Error("Failed to load indexer definitions", "error", err)
 		os.Exit(1)

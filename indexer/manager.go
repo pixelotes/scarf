@@ -49,6 +49,8 @@ type Manager struct {
 	watcher              *fsnotify.Watcher
 	reloadCallback       func()
 	mu                   sync.RWMutex
+	failureTimestamps    map[string][]time.Time
+	maxFailures          int
 }
 
 // newHttpClient creates a new HTTP client with our logging transport and custom TLS settings.
@@ -81,7 +83,7 @@ func newHttpClient(jar http.CookieJar) *http.Client {
 }
 
 // NewManager creates a manager and loads definitions from a given path
-func NewManager(definitionsPath string) (*Manager, error) {
+func NewManager(definitionsPath string, maxFailures int) (*Manager, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create file watcher: %w", err)
@@ -103,6 +105,8 @@ func NewManager(definitionsPath string) (*Manager, error) {
 		flaresolverrSessions: make(map[string]string),
 		definitionsPath:      definitionsPath,
 		watcher:              watcher,
+		failureTimestamps:    make(map[string][]time.Time),
+		maxFailures:          maxFailures,
 	}
 
 	if err := m.Reload(); err != nil {
@@ -116,6 +120,59 @@ func NewManager(definitionsPath string) (*Manager, error) {
 	}
 
 	return m, nil
+}
+
+func (m *Manager) recordSuccess(key string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// If there's a failure history, log that it's being cleared.
+	if len(m.failureTimestamps[key]) > 0 {
+		slog.Info("Indexer connection successful, resetting failure history", "indexer", key)
+		delete(m.failureTimestamps, key) // Clear the history
+	}
+}
+
+// recordFailure logs a failure and disables the indexer if the threshold is met within 24 hours.
+func (m *Manager) recordFailure(key string) {
+	// If auto-disable is turned off, do nothing.
+	if m.maxFailures == 0 {
+		return
+	}
+
+	m.mu.Lock()
+	now := time.Now()
+	// Append the current failure time.
+	timestamps := append(m.failureTimestamps[key], now)
+
+	// Filter out failures older than 24 hours.
+	twentyFourHoursAgo := now.Add(-24 * time.Hour)
+	recentFailures := []time.Time{}
+	for _, ts := range timestamps {
+		if ts.After(twentyFourHoursAgo) {
+			recentFailures = append(recentFailures, ts)
+		}
+	}
+	m.failureTimestamps[key] = recentFailures
+	count := len(recentFailures)
+	def, exists := m.Indexers[key]
+	m.mu.Unlock()
+
+	slog.Warn("Indexer request failed", "indexer", key, "recent_failure_count", count, "threshold", m.maxFailures)
+
+	if exists && bool(def.Enabled) && count >= m.maxFailures {
+		slog.Warn("Disabling indexer due to excessive failures within 24 hours", "indexer", key, "threshold", m.maxFailures)
+		// Run in a goroutine to prevent potential deadlocks.
+		go func() {
+			if err := m.ToggleIndexerEnabled(key, false); err != nil {
+				slog.Error("Failed to auto-disable indexer", "indexer", key, "error", err)
+			} else {
+				// Reset history only on successful disable.
+				m.mu.Lock()
+				delete(m.failureTimestamps, key)
+				m.mu.Unlock()
+			}
+		}()
+	}
 }
 
 // parseCookieString converts a standard cookie string into the format FlareSolverr expects.
@@ -643,7 +700,12 @@ func (m *Manager) getClient(key string) *http.Client {
 // Test performs a simple search to test if an indexer is working
 func (m *Manager) Test(ctx context.Context, indexerKey string) error {
 	_, err := m.Search(ctx, indexerKey, SearchParams{Query: "test"})
-	return err
+	if err != nil {
+		m.recordFailure(indexerKey) // Record failure
+		return err
+	}
+	m.recordSuccess(indexerKey) // Record success
+	return nil
 }
 
 // Search queries a specific indexer using the appropriate search mode.
@@ -659,6 +721,7 @@ func (m *Manager) Search(ctx context.Context, indexerKey string, params SearchPa
 
 	if def.Login.URL != "" {
 		if err := m.authenticate(def); err != nil {
+			m.recordFailure(indexerKey) // Record authentication failure
 			return nil, fmt.Errorf("authentication failed for indexer '%s': %w", def.Name, err)
 		}
 	}
@@ -812,14 +875,23 @@ func (m *Manager) Search(ctx context.Context, indexerKey string, params SearchPa
 
 		switch def.Search.Type {
 		case "json":
-			return m.parseJSONResults(resp.Body, def)
+			results, err := m.parseJSONResults(resp.Body, def)
+			if err == nil {
+				m.recordSuccess(indexerKey) // Record success
+			}
+			return results, err
 		case "html":
-			return m.parseHTMLResults(ctx, resp.Body, def, baseURL)
+			results, err := m.parseHTMLResults(ctx, resp.Body, def, baseURL)
+			if err == nil {
+				m.recordSuccess(indexerKey) // Record success
+			}
+			return results, err
 		default:
 			return nil, fmt.Errorf("unsupported search type: '%s'", def.Search.Type)
 		}
 	}
 
+	m.recordFailure(indexerKey) // Record failure if all URLs failed
 	return nil, fmt.Errorf("all search attempts failed for indexer '%s', last error: %w", def.Name, lastErr)
 }
 
