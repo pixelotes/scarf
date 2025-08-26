@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,6 +35,17 @@ type APIHandler struct {
 	DefaultAPILimit int // New field
 }
 
+// Represents the stats object
+type AppStats struct {
+	Cache   cache.CacheStats `json:"cache"`
+	Runtime struct {
+		Alloc      uint64 `json:"alloc_mb"`
+		TotalAlloc uint64 `json:"total_alloc_mb"`
+		Sys        uint64 `json:"sys_mb"`
+		NumGC      uint32 `json:"num_gc"`
+	} `json:"runtime"`
+}
+
 // SearchResponse represents the enhanced API response with metadata
 type SearchResponse struct {
 	Results    []indexer.SearchResult `json:"results"`
@@ -43,6 +55,27 @@ type SearchResponse struct {
 	CacheHit   bool                   `json:"cache_hit"`
 	SearchTime string                 `json:"search_time_ms"`
 	Indexer    string                 `json:"indexer"`
+}
+
+// New handler to provide application-wide stats
+func (h *APIHandler) AppStatsHandler(w http.ResponseWriter, r *http.Request) {
+	// Get existing cache stats
+	cacheStats := h.Cache.GetStats()
+
+	// Get memory stats from Go runtime
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	stats := AppStats{
+		Cache: cacheStats,
+	}
+	stats.Runtime.Alloc = m.Alloc / 1024 / 1024
+	stats.Runtime.TotalAlloc = m.TotalAlloc / 1024 / 1024
+	stats.Runtime.Sys = m.Sys / 1024 / 1024
+	stats.Runtime.NumGC = m.NumGC
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
 }
 
 // NewAPIHandler creates a new API handler with initialized rate limiters

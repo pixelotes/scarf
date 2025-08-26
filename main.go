@@ -308,6 +308,9 @@ func main() {
 			w.WriteHeader(http.StatusOK)
 			json.NewEncoder(w).Encode(map[string]string{"status": "cleared"})
 		})
+
+		// Stats endpoint
+		r.Get("/api/v1/stats", apiHandler.AppStatsHandler)
 	})
 
 	// --- Static File Serving ---
