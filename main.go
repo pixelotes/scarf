@@ -242,6 +242,7 @@ func main() {
 	// Torznab API endpoints
 	r.Get("/torznab/{indexer}/api", apiHandler.TorznabAPI)
 	r.Get("/torznab/{indexer}", apiHandler.TorznabSearch)
+	r.Get("/torznab/{indexer}/latest", apiHandler.TorznabLatest)
 
 	if !cfg.WebUIEnabled {
 		slog.Info("Web UI is disabled")
