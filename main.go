@@ -24,6 +24,35 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
+// runScheduledSearch encapsulates the logic for a single scheduled indexer search.
+func runScheduledSearch(cfg *config.ConfigOptions, idxManager *indexer.Manager, appCache *cache.Cache, indexerKey string, indexerDef *indexer.Definition) {
+	slog.Info("Scheduler: Running job", "indexer", indexerDef.Name)
+	// Create a new context with the configured timeout
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.RequestTimeout*2) // Give scheduled jobs double timeout
+	defer cancel()
+
+	results, err := idxManager.Search(ctx, indexerKey, indexer.SearchParams{})
+	if err != nil {
+		slog.Error("Scheduler: Failed to fetch latest", "indexer", indexerDef.Name, "error", err)
+		return
+	}
+	slog.Info("Scheduler: Successfully fetched releases", "indexer", indexerDef.Name, "count", len(results))
+
+	if len(results) > 0 {
+		latestCacheKey := api.GenerateLatestCacheKey(indexerKey)
+		cachedResult := api.CachedSearchResult{
+			Results:    results,
+			CachedAt:   time.Now(),
+			IndexerKey: indexerKey,
+		}
+		if jsonData, err := json.Marshal(cachedResult); err == nil {
+			// Use the new dedicated TTL for 'latest' results
+			appCache.Set(latestCacheKey, jsonData, cfg.LatestCacheTTL)
+			slog.Debug("Scheduler: Cached latest results", "indexer", indexerDef.Name, "key", latestCacheKey)
+		}
+	}
+}
+
 func main() {
 	// Parse command line flags
 	var showHelp bool
@@ -115,58 +144,61 @@ func main() {
 	}
 
 	// --- Scheduler Setup ---
-	c := cron.New()
+	if cfg.CronjobsEnabled {
+		slog.Info("Scheduler is enabled")
+		c := cron.New()
 
-	// Function to update scheduled jobs when indexers are reloaded
-	updateScheduledJobs := func() {
-		slog.Info("Updating scheduled jobs after indexer reload...")
+		// Function to update scheduled jobs when indexers are reloaded
+		updateScheduledJobs := func() {
+			slog.Info("Updating scheduled jobs after indexer reload...")
 
-		// Stop existing cron jobs and create a new scheduler
-		if c != nil {
-			c.Stop()
-		}
-		c = cron.New()
-
-		// Re-add jobs for all indexers with schedules
-		jobCount := 0
-		for key, def := range idxManager.GetAllIndexers() {
-			if def.Schedule == "" || !def.Enabled {
-				continue
+			// Stop existing cron jobs and create a new scheduler
+			if c != nil {
+				c.Stop()
 			}
-			indexerKey, indexerDef := key, def
-			_, err := c.AddFunc(def.Schedule, func() {
-				slog.Info("Scheduler: Running job", "indexer", indexerDef.Name)
-				// Create a new context with the configured timeout
-				ctx, cancel := context.WithTimeout(context.Background(), cfg.RequestTimeout*2) // Give scheduled jobs double timeout
-				defer cancel()
+			c = cron.New()
 
-				results, err := idxManager.Search(ctx, indexerKey, indexer.SearchParams{})
-				if err != nil {
-					slog.Error("Scheduler: Failed to fetch latest", "indexer", indexerDef.Name, "error", err)
-					return
+			// Re-add jobs for all indexers with schedules
+			jobCount := 0
+			for key, def := range idxManager.GetAllIndexers() {
+				if def.Schedule == "" || !def.Enabled {
+					continue
 				}
-				slog.Info("Scheduler: Successfully fetched releases", "indexer", indexerDef.Name, "count", len(results))
-			})
-			if err != nil {
-				slog.Warn("Could not schedule job", "indexer", def.Name, "error", err)
+				indexerKey, indexerDef := key, def
+				_, err := c.AddFunc(def.Schedule, func() {
+					runScheduledSearch(cfg, idxManager, appCache, indexerKey, indexerDef)
+				})
+				if err != nil {
+					slog.Warn("Could not schedule job", "indexer", def.Name, "error", err)
+				} else {
+					jobCount++
+				}
+			}
+
+			if jobCount > 0 {
+				c.Start()
+				slog.Info("Scheduler updated", "jobs", jobCount)
 			} else {
-				jobCount++
+				slog.Info("No scheduled jobs configured")
 			}
 		}
 
-		if jobCount > 0 {
-			c.Start()
-			slog.Info("Scheduler updated", "jobs", jobCount)
-		} else {
-			slog.Info("No scheduled jobs configured")
+		// Set up initial scheduled jobs
+		updateScheduledJobs()
+
+		// Trigger initial run of all scheduled jobs in the background
+		slog.Info("Scheduler: Performing initial run of all scheduled jobs...")
+		for key, def := range idxManager.GetAllIndexers() {
+			if def.Schedule != "" && def.Enabled {
+				go runScheduledSearch(cfg, idxManager, appCache, key, def)
+			}
 		}
+
+		// Set the reload callback for the indexer manager
+		idxManager.SetReloadCallback(updateScheduledJobs)
+	} else {
+		slog.Info("Scheduler is disabled by environment variable")
 	}
-
-	// Set up initial scheduled jobs
-	updateScheduledJobs()
-
-	// Set the reload callback for the indexer manager
-	idxManager.SetReloadCallback(updateScheduledJobs)
 
 	// --- API Server Setup ---
 	r := chi.NewRouter()
@@ -223,6 +255,7 @@ func main() {
 	// Torznab API endpoints
 	r.Get("/torznab/{indexer}/api", apiHandler.TorznabAPI)
 	r.Get("/torznab/{indexer}", apiHandler.TorznabSearch)
+	r.Get("/torznab/{indexer}/latest", apiHandler.TorznabLatest)
 
 	if !cfg.WebUIEnabled {
 		slog.Info("Web UI is disabled")

@@ -22,6 +22,13 @@ func GenerateCacheKey(indexerKey, query, category string) string {
 	return fmt.Sprintf("%x", hash)
 }
 
+// GenerateLatestCacheKey generates a standardized cache key for scheduled job results.
+func GenerateLatestCacheKey(indexerKey string) string {
+	keyStr := fmt.Sprintf("latest:%s", indexerKey)
+	hash := sha1.Sum([]byte(keyStr))
+	return fmt.Sprintf("%x", hash)
+}
+
 // CachedSearchResult represents the standardized cached search data
 type CachedSearchResult struct {
 	Results    []indexer.SearchResult `json:"results"`

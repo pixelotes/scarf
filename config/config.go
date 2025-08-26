@@ -17,6 +17,7 @@ type ConfigOptions struct {
 	AppPort            string
 	DefinitionsPath    string
 	CacheTTL           time.Duration
+	LatestCacheTTL     time.Duration
 	DBPath             string
 	WebUIEnabled       bool
 	DebugMode          bool
@@ -25,9 +26,10 @@ type ConfigOptions struct {
 	JWTSecret          string
 	FlareSolverrURL    string
 	InsecureSkipVerify bool
-	MaxCacheSize       int64         // New: Maximum cache size in MB
-	RequestTimeout     time.Duration // New: HTTP request timeout
-	DefaultAPILimit    int           // New: Default number of results for API
+	MaxCacheSize       int64
+	RequestTimeout     time.Duration
+	DefaultAPILimit    int
+	CronjobsEnabled    bool
 }
 
 // GetConfig loads and validates all configuration from environment variables
@@ -36,6 +38,7 @@ func GetConfig() (*ConfigOptions, error) {
 		AppPort:            GetEnv("APP_PORT", "8080"),
 		DefinitionsPath:    GetEnv("DEFINITIONS_PATH", "./definitions"),
 		CacheTTL:           GetEnvAsDuration("CACHE_TTL", 15*time.Minute),
+		LatestCacheTTL:     GetEnvAsDuration("LATEST_CACHE_TTL", 24*time.Hour),
 		DBPath:             GetEnv("DB_PATH", "./data/indexer-cache.db"),
 		WebUIEnabled:       GetEnvAsBool("WEB_UI", true),
 		DebugMode:          GetEnvAsBool("DEBUG", false),
@@ -47,6 +50,7 @@ func GetConfig() (*ConfigOptions, error) {
 		MaxCacheSize:       GetEnvAsInt64("MAX_CACHE_SIZE_MB", 500) * 1024 * 1024, // Convert MB to bytes
 		RequestTimeout:     GetEnvAsDuration("REQUEST_TIMEOUT", 20*time.Second),
 		DefaultAPILimit:    GetEnvAsInt("DEFAULT_API_LIMIT", 100),
+		CronjobsEnabled:    GetEnvAsBool("ENABLE_CRONJOBS", true),
 	}
 
 	// Validate configuration
@@ -72,6 +76,9 @@ func (c *ConfigOptions) Validate() error {
 	// Validate durations
 	if c.CacheTTL < time.Minute {
 		return fmt.Errorf("CACHE_TTL must be at least 1 minute, got: %s", c.CacheTTL)
+	}
+	if c.LatestCacheTTL < time.Hour {
+		return fmt.Errorf("LATEST_CACHE_TTL must be at least 1 hour, got: %s", c.LatestCacheTTL)
 	}
 	if c.RequestTimeout < time.Second {
 		return fmt.Errorf("REQUEST_TIMEOUT must be at least 1 second, got: %s", c.RequestTimeout)
