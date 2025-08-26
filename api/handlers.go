@@ -891,6 +891,70 @@ func (h *APIHandler) TorznabSearch(w http.ResponseWriter, r *http.Request) {
 	h.TorznabAPI(w, r)
 }
 
+// TorznabLatest returns the pre-cached feed of latest releases from a scheduled job.
+func (h *APIHandler) TorznabLatest(w http.ResponseWriter, r *http.Request) {
+	apiKey := r.URL.Query().Get("apikey")
+	if apiKey != h.FlexgetAPIKey {
+		slog.Warn("Invalid Torznab API key used for /latest endpoint", "remote_addr", r.RemoteAddr)
+		http.Error(w, "Invalid API Key", http.StatusUnauthorized)
+		return
+	}
+
+	indexerKey := chi.URLParam(r, "indexer")
+	def, ok := h.Manager.GetIndexer(indexerKey)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	slog.Info("Torznab latest request", "indexer", indexerKey)
+
+	// Create an empty feed structure to return in case of cache miss
+	feed := NewRSSFeed(def)
+	cacheKey := GenerateLatestCacheKey(indexerKey)
+
+	if cachedData, found := h.Cache.Get(cacheKey); found {
+		var cachedResult CachedSearchResult
+		if err := json.Unmarshal(cachedData, &cachedResult); err == nil {
+			// Populate the feed with cached results
+			for _, result := range cachedResult.Results {
+				item := Item{
+					Title:       result.Title,
+					Link:        result.DownloadURL,
+					PublishDate: result.PublishDate.Format(time.RFC1123Z),
+					Size:        result.Size,
+					Enclosure: Enclosure{
+						URL:    result.DownloadURL,
+						Length: result.Size,
+						Type:   "application/x-bittorrent",
+					},
+					Attrs: []TorznabAttr{
+						{Name: "seeders", Value: strconv.Itoa(result.Seeders)},
+						{Name: "leechers", Value: strconv.Itoa(result.Leechers)},
+						{Name: "size", Value: strconv.FormatInt(result.Size, 10)},
+					},
+				}
+				feed.Channel.Items = append(feed.Channel.Items, item)
+			}
+			w.Header().Set("X-Cache", "HIT")
+		} else {
+			w.Header().Set("X-Cache", "MISS") // Found key but failed to parse
+		}
+	} else {
+		w.Header().Set("X-Cache", "MISS")
+	}
+
+	output, err := xml.MarshalIndent(feed, "", "  ")
+	if err != nil {
+		http.Error(w, "Failed to generate XML feed.", http.StatusInternalServerError)
+		return
+	}
+
+	finalOutput := []byte(xml.Header + string(output))
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.Write(finalOutput)
+}
+
 // Helper functions
 func determineHealthStatus(healthy, total int) string {
 	if total == 0 {
