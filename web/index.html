@@ -104,6 +104,43 @@
         .modal-content form { display: flex; flex-direction: column; gap: 1rem; }
         .modal-content form .form-group { display: flex; flex-direction: column; gap: 0.5rem; }
         .modal-content form .form-group-checkbox { flex-direction: row; align-items: center; }
+
+        /* Stats Page Styles */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1rem;
+        }
+        .stat-card {
+            background: var(--header-bg);
+            padding: 1rem;
+            border-radius: 4px;
+        }
+        .bar-chart {
+            display: flex;
+            height: 20px;
+            width: 100%;
+            background-color: var(--border-color);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 1rem;
+        }
+        .bar-hits {
+            background-color: var(--success-color);
+            transition: width 0.5s ease-in-out;
+            color: #111;
+            text-align: center;
+            font-size: 0.8rem;
+            line-height: 20px;
+        }
+        .bar-misses {
+            background-color: var(--error-color);
+            transition: width 0.5s ease-in-out;
+            color: #111;
+            text-align: center;
+            font-size: 0.8rem;
+            line-height: 20px;
+        }
     </style>
 </head>
 <body>
@@ -121,6 +158,7 @@
             <button data-page="search-page" class="active">Search</button>
             <button data-page="logs-page">Logs</button>
             <button data-page="status-page">Status</button>
+            <button data-page="stats-page">Stats</button>
         </nav>
 
         <div id="search-page" class="page active">
@@ -176,6 +214,34 @@
                 <input type="text" id="flexget-url-input" readonly>
             </div>
         </div>
+
+        <div id="stats-page" class="page">
+            <h2>Application Statistics</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h3>Cache Performance</h3>
+                    <p><strong>Hit Ratio:</strong> <span id="stat-cache-hit-ratio">0</span>%</p>
+                    <p><strong>Hits:</strong> <span id="stat-cache-hits">0</span></p>
+                    <p><strong>Misses:</strong> <span id="stat-cache-misses">0</span></p>
+                    <div class="bar-chart">
+                        <div id="bar-hits" class="bar-hits"></div>
+                        <div id="bar-misses" class="bar-misses"></div>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <h3>Cache Details</h3>
+                    <p><strong>Entries:</strong> <span id="stat-cache-entries">0</span></p>
+                    <p><strong>Size:</strong> <span id="stat-cache-size">0</span> MB</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Memory Usage</h3>
+                    <p><strong>Allocated:</strong> <span id="stat-mem-alloc">0</span> MB</p>
+                    <p><strong>System:</strong> <span id="stat-mem-sys">0</span> MB</p>
+                    <p><strong>GC Cycles:</strong> <span id="stat-mem-gc">0</span></p>
+                </div>
+            </div>
+        </div>
+
     </main>
 
     <div id="settings-modal" class="modal-backdrop">
@@ -196,12 +262,13 @@
             const state = {
                 sessionToken: '',
                 allIndexersData: {},
-                allResults: [], // Changed back to allResults
+                allResults: [],
                 currentPage: 1,
                 resultsPerPage: 50,
                 currentSort: { key: 'Seeders', direction: 'desc' },
                 currentSearch: { indexer: 'all', query: '', cat: '' },
                 isLoading: false,
+                statsInterval: null,
             };
     
             // --- DOM Elements ---
@@ -245,6 +312,13 @@
                         document.querySelector('#nav-buttons .active').classList.remove('active');
                         e.target.classList.add('active');
                         document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === pageId));
+                        
+                        // Handle stats interval
+                        clearInterval(state.statsInterval);
+                        if (pageId === 'stats-page') {
+                            loadStats();
+                            state.statsInterval = setInterval(loadStats, 5000);
+                        }
                     }
                 });
                 searchForm.addEventListener('submit', handleSearchSubmit);
@@ -290,7 +364,7 @@
                 updateUIBeforeFetch();
     
                 const { indexer, query, cat } = state.currentSearch;
-                const limit = 200; // Use max limit to reduce number of requests
+                const limit = 200; 
                 let offset = 0;
                 let total = 0;
     
@@ -321,6 +395,43 @@
                     state.isLoading = false;
                 }
             }
+
+            async function loadStats() {
+                try {
+                    const response = await fetchWithAuth('/api/v1/stats');
+                    if (!response.ok) return;
+                    const stats = await response.json();
+
+                    // Update Cache Performance Card
+                    const hitRatio = (stats.cache.hit_ratio * 100).toFixed(2);
+                    document.getElementById('stat-cache-hit-ratio').textContent = hitRatio;
+                    document.getElementById('stat-cache-hits').textContent = stats.cache.hits;
+                    document.getElementById('stat-cache-misses').textContent = stats.cache.misses;
+
+                    // Update Bar Chart
+                    const total = stats.cache.hits + stats.cache.misses;
+                    const hitsPercentage = total > 0 ? (stats.cache.hits / total) * 100 : 0;
+                    const barHits = document.getElementById('bar-hits');
+                    const barMisses = document.getElementById('bar-misses');
+                    barHits.style.width = `${hitsPercentage}%`;
+                    barMisses.style.width = `${100 - hitsPercentage}%`;
+                    barHits.textContent = hitsPercentage > 10 ? stats.cache.hits : '';
+                    barMisses.textContent = (100 - hitsPercentage) > 10 ? stats.cache.misses : '';
+
+
+                    // Update Cache Details Card
+                    document.getElementById('stat-cache-entries').textContent = stats.cache.entry_count;
+                    document.getElementById('stat-cache-size').textContent = (stats.cache.size_bytes / 1024 / 1024).toFixed(2);
+
+                    // Update Memory Usage Card
+                    document.getElementById('stat-mem-alloc').textContent = stats.runtime.alloc_mb;
+                    document.getElementById('stat-mem-sys').textContent = stats.runtime.sys_mb;
+                    document.getElementById('stat-mem-gc').textContent = stats.runtime.num_gc;
+
+                } catch (error) {
+                    console.error("Failed to load stats:", error);
+                }
+            }
             
             // --- UI RENDERING & EVENT HANDLERS ---
             function updateUIBeforeFetch() {
@@ -340,7 +451,7 @@
                     state.currentSort.key = sortKey;
                     state.currentSort.direction = ['Size', 'Seeders', 'Leechers', 'PublishDate'].includes(sortKey) ? 'desc' : 'asc';
                 }
-                state.currentPage = 1; // Reset to first page after sorting
+                state.currentPage = 1; 
                 renderCurrentPage();
             }
             
