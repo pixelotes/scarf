@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -23,6 +24,37 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/robfig/cron/v3"
 )
+
+// getScheduleInterval parses a cron expression and returns its execution interval.
+func getScheduleInterval(scheduleStr string) (time.Duration, error) {
+	// Handle standard cron descriptors first for efficiency.
+	switch scheduleStr {
+	case "@hourly":
+		return time.Hour, nil
+	case "@daily":
+		return 24 * time.Hour, nil
+	case "@weekly":
+		return 7 * 24 * time.Hour, nil
+	}
+	// For `@every X` descriptors.
+	if strings.HasPrefix(scheduleStr, "@every") {
+		return time.ParseDuration(strings.TrimPrefix(scheduleStr, "@every "))
+	}
+
+	// Fallback to full cron expression parsing for custom schedules.
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	schedule, err := parser.Parse(scheduleStr)
+	if err != nil {
+		return 0, err
+	}
+
+	// Calculate interval by finding the difference between the next two run times.
+	now := time.Now()
+	nextRun := schedule.Next(now)
+	nextNextRun := schedule.Next(nextRun)
+
+	return nextNextRun.Sub(nextRun), nil
+}
 
 // runScheduledSearch encapsulates the logic for a single scheduled indexer search.
 func runScheduledSearch(cfg *config.ConfigOptions, idxManager *indexer.Manager, appCache *cache.Cache, indexerKey string, indexerDef *indexer.Definition) {
@@ -46,7 +78,7 @@ func runScheduledSearch(cfg *config.ConfigOptions, idxManager *indexer.Manager, 
 			IndexerKey: indexerKey,
 		}
 		if jsonData, err := json.Marshal(cachedResult); err == nil {
-			// Use the new dedicated TTL for 'latest' results
+			// Use the dedicated TTL for 'latest' results
 			appCache.Set(latestCacheKey, jsonData, cfg.LatestCacheTTL)
 			slog.Debug("Scheduler: Cached latest results", "indexer", indexerDef.Name, "key", latestCacheKey)
 		}
@@ -186,13 +218,58 @@ func main() {
 		// Set up initial scheduled jobs
 		updateScheduledJobs()
 
-		// Trigger initial run of all scheduled jobs in the background
-		slog.Info("Scheduler: Performing initial run of all scheduled jobs...")
+		// Trigger initial run of all scheduled jobs if their cache is stale, using a worker pool.
+		slog.Info("Scheduler: Performing initial run check for all scheduled jobs...")
+
+		type job struct {
+			key string
+			def *indexer.Definition
+		}
+
+		jobs := make(chan job, len(allIndexers))
+		var wg sync.WaitGroup
+
+		// Define the number of concurrent workers.
+		numWorkers := 4
+		for w := 1; w <= numWorkers; w++ {
+			wg.Add(1)
+			go func(workerID int) {
+				defer wg.Done()
+				for j := range jobs {
+					latestCacheKey := api.GenerateLatestCacheKey(j.key)
+					// --- START CHANGE: Use the new read-only Get method ---
+					cachedData, found := appCache.GetWithoutUpdate(latestCacheKey)
+					// --- END CHANGE ---
+
+					if found {
+						var cachedResult api.CachedSearchResult
+						if err := json.Unmarshal(cachedData, &cachedResult); err == nil {
+							scheduleInterval, err := getScheduleInterval(j.def.Schedule)
+							if err != nil {
+								slog.Warn("Could not parse schedule for initial run check, running job anyway.", "worker", workerID, "indexer", j.def.Name, "error", err)
+								runScheduledSearch(cfg, idxManager, appCache, j.key, j.def)
+								continue
+							}
+
+							if time.Since(cachedResult.CachedAt) < scheduleInterval {
+								slog.Info("Scheduler: Skipping initial run, cache is recent", "worker", workerID, "indexer", j.def.Name, "cache_age", time.Since(cachedResult.CachedAt).Round(time.Second))
+								continue
+							}
+							slog.Info("Scheduler: Cache is stale, performing initial run", "worker", workerID, "indexer", j.def.Name)
+						}
+					}
+					runScheduledSearch(cfg, idxManager, appCache, j.key, j.def)
+				}
+			}(w)
+		}
+
+		// Add jobs to the queue
 		for key, def := range idxManager.GetAllIndexers() {
 			if def.Schedule != "" && def.Enabled {
-				go runScheduledSearch(cfg, idxManager, appCache, key, def)
+				jobs <- job{key: key, def: def}
 			}
 		}
+		close(jobs)
 
 		// Set the reload callback for the indexer manager
 		idxManager.SetReloadCallback(updateScheduledJobs)
@@ -236,6 +313,7 @@ func main() {
 		idxManager,
 		appCache,
 		cfg.CacheTTL,
+		cfg.LatestCacheTTL,
 		cfg.FlexgetAPIKey,
 		cfg.UIPassword,
 		cfg.DefaultAPILimit,
@@ -254,8 +332,8 @@ func main() {
 
 	// Torznab API endpoints
 	r.Get("/torznab/{indexer}/api", apiHandler.TorznabAPI)
-	r.Get("/torznab/{indexer}", apiHandler.TorznabSearch)
 	r.Get("/torznab/{indexer}/latest", apiHandler.TorznabLatest)
+	r.Get("/torznab/{indexer}", apiHandler.TorznabSearch)
 
 	if !cfg.WebUIEnabled {
 		slog.Info("Web UI is disabled")
@@ -386,12 +464,4 @@ func maskAPIKey(key string) string {
 		return strings.Repeat("*", len(key))
 	}
 	return key[:2] + strings.Repeat("*", len(key)-4) + key[len(key)-2:]
-}
-
-// Helper function for conditional values
-func ifThen[T any](condition bool, a, b T) T {
-	if condition {
-		return a
-	}
-	return b
 }

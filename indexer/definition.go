@@ -122,6 +122,7 @@ type SearchResult struct {
 	Seeders     int       `json:"Seeders"`
 	Leechers    int       `json:"Leechers"`
 	PublishDate time.Time `json:"PublishDate"`
+	Indexer     string    `json:"Indexer"`
 }
 
 // SearchParams holds all possible search parameters from Torznab requests

@@ -26,12 +26,13 @@ type APIHandler struct {
 	Manager         *indexer.Manager
 	Cache           *cache.Cache
 	CacheTTL        time.Duration
+	LatestCacheTTL  time.Duration
 	FlexgetAPIKey   string
 	UIPassword      string
 	StartTime       time.Time
 	rateLimiters    map[string]*rate.Limiter
 	rlMutex         sync.RWMutex
-	DefaultAPILimit int // New field
+	DefaultAPILimit int
 }
 
 // SearchResponse represents the enhanced API response with metadata
@@ -46,16 +47,17 @@ type SearchResponse struct {
 }
 
 // NewAPIHandler creates a new API handler with initialized rate limiters
-func NewAPIHandler(manager *indexer.Manager, cache *cache.Cache, cacheTTL time.Duration, flexgetKey, uiPassword string, defaultLimit int) *APIHandler {
+func NewAPIHandler(manager *indexer.Manager, cache *cache.Cache, cacheTTL, latestCacheTTL time.Duration, flexgetKey, uiPassword string, defaultLimit int) *APIHandler {
 	return &APIHandler{
 		Manager:         manager,
 		Cache:           cache,
 		CacheTTL:        cacheTTL,
+		LatestCacheTTL:  latestCacheTTL,
 		FlexgetAPIKey:   flexgetKey,
 		UIPassword:      uiPassword,
 		StartTime:       time.Now(),
 		rateLimiters:    make(map[string]*rate.Limiter),
-		DefaultAPILimit: defaultLimit, // Store the new default limit
+		DefaultAPILimit: defaultLimit,
 	}
 }
 
