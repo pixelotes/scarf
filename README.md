@@ -3,6 +3,8 @@
 Scarf is a versatile, self-hosted meta-indexer that acts as a bridge between your favorite media automation tools (like Sonarr, Radarr, Lidarr) and various public and private torrent trackers. 
 It provides a clean, unified Torznab API, allowing you to search across multiple sites simultaneously.
 
+![image](./scarf.jpg)
+
 ## ✨ Features
 
 * **Ultra-lightweight**: It's a single Go binary that usually takes around 10-15 MB or RAM and virtually no CPU.
