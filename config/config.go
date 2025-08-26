@@ -30,6 +30,7 @@ type ConfigOptions struct {
 	RequestTimeout     time.Duration
 	DefaultAPILimit    int
 	CronjobsEnabled    bool
+	MaxFailures        int
 }
 
 // GetConfig loads and validates all configuration from environment variables
@@ -51,6 +52,7 @@ func GetConfig() (*ConfigOptions, error) {
 		RequestTimeout:     GetEnvAsDuration("REQUEST_TIMEOUT", 20*time.Second),
 		DefaultAPILimit:    GetEnvAsInt("DEFAULT_API_LIMIT", 100),
 		CronjobsEnabled:    GetEnvAsBool("ENABLE_CRONJOBS", true),
+		MaxFailures:        GetEnvAsInt("MAX_FAILURES", 5),
 	}
 
 	// Validate configuration

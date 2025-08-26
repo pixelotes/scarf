@@ -112,6 +112,22 @@ func (c *Cache) Get(key string) ([]byte, bool) {
 	return value, true
 }
 
+// GetWithoutUpdate retrieves an item from the cache without updating access statistics.
+// This is suitable for read-only operations where locking should be avoided.
+func (c *Cache) GetWithoutUpdate(key string) ([]byte, bool) {
+	var value []byte
+	err := c.db.QueryRow(`
+		SELECT value FROM cache 
+		WHERE key = ? AND expires_at > strftime('%s', 'now')
+	`, key).Scan(&value)
+
+	if err != nil {
+		// No need to update miss stats for this specific type of get
+		return nil, false
+	}
+	return value, true
+}
+
 // Set adds an item to the cache with automatic size management
 func (c *Cache) Set(key string, value []byte, ttl time.Duration) {
 	now := time.Now().Unix()

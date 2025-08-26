@@ -27,12 +27,13 @@ type APIHandler struct {
 	Manager         *indexer.Manager
 	Cache           *cache.Cache
 	CacheTTL        time.Duration
+	LatestCacheTTL  time.Duration
 	FlexgetAPIKey   string
 	UIPassword      string
 	StartTime       time.Time
 	rateLimiters    map[string]*rate.Limiter
 	rlMutex         sync.RWMutex
-	DefaultAPILimit int // New field
+	DefaultAPILimit int
 }
 
 // Represents the stats object
@@ -79,16 +80,17 @@ func (h *APIHandler) AppStatsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // NewAPIHandler creates a new API handler with initialized rate limiters
-func NewAPIHandler(manager *indexer.Manager, cache *cache.Cache, cacheTTL time.Duration, flexgetKey, uiPassword string, defaultLimit int) *APIHandler {
+func NewAPIHandler(manager *indexer.Manager, cache *cache.Cache, cacheTTL, latestCacheTTL time.Duration, flexgetKey, uiPassword string, defaultLimit int) *APIHandler {
 	return &APIHandler{
 		Manager:         manager,
 		Cache:           cache,
 		CacheTTL:        cacheTTL,
+		LatestCacheTTL:  latestCacheTTL,
 		FlexgetAPIKey:   flexgetKey,
 		UIPassword:      uiPassword,
 		StartTime:       time.Now(),
 		rateLimiters:    make(map[string]*rate.Limiter),
-		DefaultAPILimit: defaultLimit, // Store the new default limit
+		DefaultAPILimit: defaultLimit,
 	}
 }
 
@@ -940,8 +942,6 @@ func (h *APIHandler) TorznabLatest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("Torznab latest request", "indexer", indexerKey)
-
 	// Create an empty feed structure to return in case of cache miss
 	feed := NewRSSFeed(def)
 	cacheKey := GenerateLatestCacheKey(indexerKey)
@@ -949,6 +949,14 @@ func (h *APIHandler) TorznabLatest(w http.ResponseWriter, r *http.Request) {
 	if cachedData, found := h.Cache.Get(cacheKey); found {
 		var cachedResult CachedSearchResult
 		if err := json.Unmarshal(cachedData, &cachedResult); err == nil {
+			// --- START Log Enhancement ---
+			slog.Info("Torznab latest request",
+				"indexer", indexerKey,
+				"cache_status", "HIT",
+				"cache_updated_at", cachedResult.CachedAt.Format(time.RFC3339),
+			)
+			// --- END Log Enhancement ---
+
 			// Populate the feed with cached results
 			for _, result := range cachedResult.Results {
 				item := Item{
@@ -971,9 +979,13 @@ func (h *APIHandler) TorznabLatest(w http.ResponseWriter, r *http.Request) {
 			}
 			w.Header().Set("X-Cache", "HIT")
 		} else {
-			w.Header().Set("X-Cache", "MISS") // Found key but failed to parse
+			slog.Warn("Torznab latest request: Failed to parse cached data", "indexer", indexerKey) // More specific log
+			w.Header().Set("X-Cache", "MISS")
 		}
 	} else {
+		// --- Log Enhancement ---
+		slog.Info("Torznab latest request", "indexer", indexerKey, "cache_status", "MISS")
+		// --- END Log Enhancement ---
 		w.Header().Set("X-Cache", "MISS")
 	}
 

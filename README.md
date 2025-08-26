@@ -71,7 +71,7 @@ Scarf is configured using environment variables. Here are the most important one
 | `FLARESOLVERR_URL`  | The url pointing to the FlareSolverr service                                |                              |
 | `DEFAULT_API_LIMIT` | Default number of results for API clients that don't support pagination.    | `100`                        |
 | `ENABLE_CRONJOBS`   | Enables or disables the job that caches the latest tracker releases         | `true`                       |
-
+| `MAX_RETRIES`   | Number of failures in 24h before disabling an indexer         | `5`                       |
 
 ---
 
@@ -183,6 +183,7 @@ For more complex sites, you can use the details_url and download_selector fields
 - [X] Add support for FlareSolverr (untested)
 - [X] Add specific search modes (tv, movie, etc.)
 - [X] Store the results in a cache
+- [X] Automatically disable failing indexers
 - [ ] Dynamic search modes list for "/all" endpoint (currently only shows basic search)
 - [ ] Implement custom rate limiting for trackers
 - [ ] Implement custom timeouts for trackers
