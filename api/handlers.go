@@ -907,8 +907,6 @@ func (h *APIHandler) TorznabLatest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("Torznab latest request", "indexer", indexerKey)
-
 	// Create an empty feed structure to return in case of cache miss
 	feed := NewRSSFeed(def)
 	cacheKey := GenerateLatestCacheKey(indexerKey)
@@ -916,6 +914,14 @@ func (h *APIHandler) TorznabLatest(w http.ResponseWriter, r *http.Request) {
 	if cachedData, found := h.Cache.Get(cacheKey); found {
 		var cachedResult CachedSearchResult
 		if err := json.Unmarshal(cachedData, &cachedResult); err == nil {
+			// --- START Log Enhancement ---
+			slog.Info("Torznab latest request",
+				"indexer", indexerKey,
+				"cache_status", "HIT",
+				"cache_updated_at", cachedResult.CachedAt.Format(time.RFC3339),
+			)
+			// --- END Log Enhancement ---
+
 			// Populate the feed with cached results
 			for _, result := range cachedResult.Results {
 				item := Item{
@@ -938,9 +944,13 @@ func (h *APIHandler) TorznabLatest(w http.ResponseWriter, r *http.Request) {
 			}
 			w.Header().Set("X-Cache", "HIT")
 		} else {
-			w.Header().Set("X-Cache", "MISS") // Found key but failed to parse
+			slog.Warn("Torznab latest request: Failed to parse cached data", "indexer", indexerKey) // More specific log
+			w.Header().Set("X-Cache", "MISS")
 		}
 	} else {
+		// --- Log Enhancement ---
+		slog.Info("Torznab latest request", "indexer", indexerKey, "cache_status", "MISS")
+		// --- END Log Enhancement ---
 		w.Header().Set("X-Cache", "MISS")
 	}
 
