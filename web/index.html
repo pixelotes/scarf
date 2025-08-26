@@ -134,6 +134,7 @@
             <table id="results-table" style="display:none;">
                 <thead>
                     <tr>
+                        <th class="sortable indexer-col" data-sort="Indexer">Indexer <span class="sort-arrow"></span></th>
                         <th class="sortable" data-sort="Title">Title <span class="sort-arrow"></span></th>
                         <th class="sortable" data-sort="Size">Size <span class="sort-arrow"></span></th>
                         <th class="sortable seeders" data-sort="Seeders">Seeders <span class="sort-arrow"></span></th>
@@ -278,6 +279,10 @@
                 state.currentSearch.query = formData.get('q');
                 state.currentSearch.cat = formData.get('cat');
                 state.currentSort = state.currentSearch.indexer === 'all' ? { key: 'Seeders', direction: 'desc' } : { key: 'PublishDate', direction: 'desc' };
+                
+                // Disable indexer column if not searching all
+                toggleIndexerColumn();
+                
                 fetchAllResults();
             }
     
@@ -562,6 +567,14 @@
             }
             
             // --- RENDER & HELPER Functions ---
+
+            function toggleIndexerColumn() {
+                const isAllSearch = document.getElementById('indexer-select').value === 'all';
+                document.querySelectorAll('.indexer-col').forEach(col => {
+                    col.style.display = isAllSearch ? '' : 'none';
+                });
+            }
+
             function renderCurrentPage() {
                 if (!state.allResults || state.allResults.length === 0) {
                     searchStatus.textContent = 'No results found.';
@@ -582,6 +595,7 @@
                 pageResults.forEach(item => {
                     const row = resultsBody.insertRow();
                     row.innerHTML = `
+                        <td class="indexer-col">${item.Indexer}</td>
                         <td>${item.Title}</td>
                         <td>${formatBytes(item.Size)}</td>
                         <td class="seeders">${item.Seeders}</td>
@@ -607,6 +621,8 @@
                     if (sortKey === state.currentSort.key) arrow.innerHTML = state.currentSort.direction === 'asc' ? '▲' : '▼';
                     else arrow.innerHTML = '';
                 });
+
+                 toggleIndexerColumn();
             }
     
             function sortResults(results) {

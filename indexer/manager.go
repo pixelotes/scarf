@@ -927,6 +927,7 @@ func (m *Manager) parseHTMLResults(ctx context.Context, body io.Reader, def *Def
 
 	doc.Find(def.Search.Results.RowsSelector).Each(func(i int, s *goquery.Selection) {
 		var sr SearchResult
+		sr.Indexer = def.Name // Add this line
 		sr.Title = m.extractAttr(s, fields.Title)
 		sr.Size = m.parseSize(m.extractText(s, fields.Size))
 		sr.Seeders, _ = strconv.Atoi(m.extractText(s, fields.Seeders))
@@ -1042,6 +1043,7 @@ func (m *Manager) fetchDownloadLinkFromDetails(ctx context.Context, detailURL st
 
 	return m.absURL(detailURL, downloadLink), nil
 }
+
 func (m *Manager) parseJSONResults(body io.Reader, def *Definition) ([]SearchResult, error) {
 	data, err := io.ReadAll(body)
 	if err != nil {
@@ -1064,12 +1066,14 @@ func (m *Manager) parseJSONResults(body io.Reader, def *Definition) ([]SearchRes
 		})
 
 		if def.Search.Results.SubPath == "" {
-			processResult(m, parentValue, parentRaw, nil, fields, &results)
+			// Correctly pass 'def' to the processing function
+			processResult(m, parentValue, parentRaw, nil, fields, &results, def)
 			return true
 		}
 
 		parentValue.Get(def.Search.Results.SubPath).ForEach(func(subKey, childValue gjson.Result) bool {
-			processResult(m, childValue, nil, parentRaw, fields, &results)
+			// Correctly pass 'def' to the processing function
+			processResult(m, childValue, nil, parentRaw, fields, &results, def)
 			return true
 		})
 
@@ -1077,7 +1081,8 @@ func (m *Manager) parseJSONResults(body io.Reader, def *Definition) ([]SearchRes
 	})
 	return results, nil
 }
-func processResult(m *Manager, resultValue gjson.Result, resultRaw, parentRaw map[string]interface{}, fields FieldDefinition, results *[]SearchResult) {
+
+func processResult(m *Manager, resultValue gjson.Result, resultRaw, parentRaw map[string]interface{}, fields FieldDefinition, results *[]SearchResult, def *Definition) {
 	if resultRaw == nil {
 		resultRaw = make(map[string]interface{})
 		resultValue.ForEach(func(k, v gjson.Result) bool {
@@ -1124,8 +1129,10 @@ func processResult(m *Manager, resultValue gjson.Result, resultRaw, parentRaw ma
 		Seeders:     int(resultValue.Get(fields.Seeders.Selector).Int()),
 		Leechers:    int(resultValue.Get(fields.Leechers.Selector).Int()),
 		PublishDate: pubDate,
+		Indexer:     def.Name, // This will now work as intended
 	})
 }
+
 func (m *Manager) executeTemplate(tplStr string, data any) (string, error) {
 	if !strings.Contains(tplStr, "{{") {
 		return tplStr, nil
@@ -1141,6 +1148,7 @@ func (m *Manager) executeTemplate(tplStr string, data any) (string, error) {
 	}
 	return buf.String(), nil
 }
+
 func (m *Manager) absURL(base, path string) string {
 	baseURL, err := url.Parse(base)
 	if err != nil {
@@ -1152,6 +1160,7 @@ func (m *Manager) absURL(base, path string) string {
 	}
 	return baseURL.ResolveReference(relURL).String()
 }
+
 func (m *Manager) parseSize(s string) int64 {
 	s = strings.ReplaceAll(s, "\u00A0", " ")
 	matches := sizeRegex.FindStringSubmatch(s)
@@ -1173,6 +1182,7 @@ func (m *Manager) parseSize(s string) int64 {
 	}
 	return int64(val * multiplier)
 }
+
 func parseFuzzyDate(dateStr string) (time.Time, error) {
 	dateStr = strings.TrimSpace(dateStr)
 	now := time.Now()
