@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Go Indexer</title>
+    <title>Scarf</title>
     <style>
         :root {
             --bg-color: #1e1e1e; --text-color: #d4d4d4; --primary-color: #007acc;
@@ -18,7 +18,7 @@
         button { background-color: var(--primary-color); border-color: var(--primary-color); cursor: pointer; font-weight: bold; }
         button:hover { opacity: 0.9; }
         button:disabled { background-color: #555; cursor: not-allowed; }
-        
+
         #login-screen { display: flex; align-items: center; justify-content: center; height: 100vh; }
         #login-form { display: flex; flex-direction: column; gap: 1rem; padding: 2rem; background: var(--header-bg); border-radius: 8px; }
 
@@ -28,10 +28,10 @@
         nav button.active { border-bottom-color: var(--primary-color); }
         .page { display: none; }
         .page.active { display: block; }
-        
+
         #search-form { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 2rem; }
         #search-form input, #search-form select { flex-grow: 1; }
-        
+
         table { width: 100%; border-collapse: collapse; }
         th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
         th { background-color: var(--table-header-bg); }
@@ -47,12 +47,12 @@
         .download-cell a { display: inline-block; padding: 4px; }
         .download-cell svg { width: 20px; height: 20px; stroke: var(--primary-color); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
         .download-cell a:hover svg { stroke: var(--text-color); }
-        
+
         #pagination-controls { display: none; justify-content: center; align-items: center; gap: 1rem; margin-top: 2rem; }
 
         #log-controls { margin-bottom: 1rem; display: flex; gap: 1rem; }
         #log-container { height: 60vh; overflow-y: scroll; background: #111; padding: 1rem; font-family: "Courier New", Courier, monospace; font-size: 0.9rem; white-space: pre-wrap; }
-        
+
         .status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
         .status-card { background: var(--header-bg); padding: 1rem; border-radius: 4px; position: relative; }
         .status-card-actions { margin-top: 1rem; display: flex; gap: 0.5rem; }
@@ -157,7 +157,7 @@
         <nav id="nav-buttons">
             <button data-page="search-page" class="active">Search</button>
             <button data-page="logs-page">Logs</button>
-            <button data-page="status-page">Status</button>
+            <button data-page="status-page">Indexers</button>
             <button data-page="stats-page">Stats</button>
         </nav>
 
@@ -220,19 +220,31 @@
             <h2>Application Statistics</h2>
             <div class="stats-grid">
                 <div class="stat-card">
-                    <h3>Cache Performance</h3>
-                    <p><strong>Hit Ratio:</strong> <span id="stat-cache-hit-ratio">0</span>%</p>
-                    <p><strong>Hits:</strong> <span id="stat-cache-hits">0</span></p>
-                    <p><strong>Misses:</strong> <span id="stat-cache-misses">0</span></p>
-                    <div class="bar-chart">
-                        <div id="bar-hits" class="bar-hits"></div>
-                        <div id="bar-misses" class="bar-misses"></div>
+                    <div id="cache-stats-enabled">
+                        <h3>Cache Performance</h3>
+                        <p><strong>Hit Ratio:</strong> <span id="stat-cache-hit-ratio">0</span>%</p>
+                        <p><strong>Hits:</strong> <span id="stat-cache-hits">0</span></p>
+                        <p><strong>Misses:</strong> <span id="stat-cache-misses">0</span></p>
+                        <div class="bar-chart">
+                            <div id="bar-hits" class="bar-hits"></div>
+                            <div id="bar-misses" class="bar-misses"></div>
+                        </div>
+                    </div>
+                    <div id="cache-stats-disabled" style="display: none;">
+                        <h3>Cache Performance</h3>
+                        <p><strong>Cache is disabled.</strong></p>
                     </div>
                 </div>
                 <div class="stat-card">
-                    <h3>Cache Details</h3>
-                    <p><strong>Entries:</strong> <span id="stat-cache-entries">0</span></p>
-                    <p><strong>Size:</strong> <span id="stat-cache-size">0</span> MB</p>
+                    <div id="cache-details-enabled">
+                        <h3>Cache Details</h3>
+                        <p><strong>Entries:</strong> <span id="stat-cache-entries">0</span></p>
+                        <p><strong>Size:</strong> <span id="stat-cache-size">0</span> MB</p>
+                    </div>
+                    <div id="cache-details-disabled" style="display: none;">
+                        <h3>Cache Details</h3>
+                        <p><strong>Cache is disabled.</strong></p>
+                    </div>
                 </div>
                 <div class="stat-card">
                     <h3>Memory Usage</h3>
@@ -253,7 +265,7 @@
             <form id="settings-modal-form">
                 <button type="submit">Save Configuration</button>
             </form>
-             <p id="settings-modal-status" style="text-align:center; margin-top:1rem;"></p>
+            <p id="settings-modal-status" style="text-align:center; margin-top:1rem;"></p>
         </div>
     </div>
 
@@ -271,7 +283,7 @@
                 isLoading: false,
                 statsInterval: null,
             };
-    
+
             // --- DOM Elements ---
             const loginScreen = document.getElementById('login-screen');
             const appContainer = document.getElementById('app-container');
@@ -281,7 +293,7 @@
             const resultsBody = document.getElementById('results-body');
             const searchStatus = document.getElementById('search-status');
             const paginationControls = document.getElementById('pagination-controls');
-    
+
             // --- AUTHENTICATION ---
             loginForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
@@ -304,7 +316,7 @@
                     loginError.textContent = error.message;
                 }
             });
-            
+
             // --- APP INITIALIZATION ---
             function initializeApp() {
                 document.getElementById('nav-buttons').addEventListener('click', (e) => {
@@ -313,7 +325,7 @@
                         document.querySelector('#nav-buttons .active').classList.remove('active');
                         e.target.classList.add('active');
                         document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === pageId));
-                        
+
                         // Handle stats interval
                         clearInterval(state.statsInterval);
                         if (pageId === 'stats-page') {
@@ -326,13 +338,13 @@
                 document.querySelector('#results-table thead').addEventListener('click', handleSortClick);
                 document.getElementById('prev-page-btn').addEventListener('click', () => { if (state.currentPage > 1) { state.currentPage--; renderCurrentPage(); } });
                 document.getElementById('next-page-btn').addEventListener('click', () => { const totalPages = Math.ceil(state.allResults.length / state.resultsPerPage); if (state.currentPage < totalPages) { state.currentPage++; renderCurrentPage(); } });
-                
+
                 setupSettingsModal();
                 loadInitialData();
                 setupLogViewer();
                 document.getElementById('type-filter').addEventListener('change', renderStatusGrid);
             }
-            
+
             // --- DATA LOADING & API CALLS ---
             async function loadInitialData() {
                 await fetchIndexerData();
@@ -340,12 +352,12 @@
                 renderStatusGrid();
                 setupFlexgetURL();
             }
-    
+
             async function fetchIndexerData() {
                 const response = await fetchWithAuth('/api/v1/indexers');
                 state.allIndexersData = await response.json();
             }
-    
+
             function handleSearchSubmit(e) {
                 e.preventDefault();
                 const formData = new FormData(e.target);
@@ -353,46 +365,46 @@
                 state.currentSearch.query = formData.get('q');
                 state.currentSearch.cat = formData.get('cat');
                 state.currentSort = state.currentSearch.indexer === 'all' ? { key: 'Seeders', direction: 'desc' } : { key: 'PublishDate', direction: 'desc' };
-                
+
                 // Disable indexer column if not searching all
                 toggleIndexerColumn();
-                
+
                 fetchAllResults();
             }
-    
+
             async function fetchAllResults() {
                 if (state.isLoading) return;
-    
+
                 state.isLoading = true;
                 state.allResults = [];
                 state.currentPage = 1;
                 updateUIBeforeFetch();
-    
+
                 const { indexer, query, cat } = state.currentSearch;
-                const limit = 200; 
+                const limit = 200;
                 let offset = 0;
                 let total = 0;
-    
+
                 try {
                     do {
                         const url = `/api/v1/search?indexer=${indexer}&q=${encodeURIComponent(query)}&cat=${cat}&limit=${limit}&offset=${offset}`;
                         const response = await fetchWithAuth(url);
                         const data = await response.json();
-    
+
                         if (!response.ok) throw new Error(data.error || 'Search request failed');
-                        
+
                         if (data.results && data.results.length > 0) {
                             state.allResults.push(...data.results);
                         }
                         total = data.total;
                         offset += limit;
-                        
+
                         searchStatus.textContent = `Searching... (${state.allResults.length} / ${total} results)`;
-    
+
                     } while (state.allResults.length < total);
-    
+
                     renderCurrentPage();
-    
+
                 } catch (error) {
                     searchStatus.textContent = `Error: ${error.message}`;
                     searchStatus.style.display = 'block';
@@ -407,26 +419,33 @@
                     if (!response.ok) return;
                     const stats = await response.json();
 
-                    // Update Cache Performance Card
-                    const hitRatio = (stats.cache.hit_ratio * 100).toFixed(2);
-                    document.getElementById('stat-cache-hit-ratio').textContent = hitRatio;
-                    document.getElementById('stat-cache-hits').textContent = stats.cache.hits;
-                    document.getElementById('stat-cache-misses').textContent = stats.cache.misses;
+                    const cacheEnabled = !!stats.cache;
+                    document.getElementById('cache-stats-enabled').style.display = cacheEnabled ? 'block' : 'none';
+                    document.getElementById('cache-stats-disabled').style.display = cacheEnabled ? 'none' : 'block';
+                    document.getElementById('cache-details-enabled').style.display = cacheEnabled ? 'block' : 'none';
+                    document.getElementById('cache-details-disabled').style.display = cacheEnabled ? 'none' : 'block';
 
-                    // Update Bar Chart
-                    const total = stats.cache.hits + stats.cache.misses;
-                    const hitsPercentage = total > 0 ? (stats.cache.hits / total) * 100 : 0;
-                    const barHits = document.getElementById('bar-hits');
-                    const barMisses = document.getElementById('bar-misses');
-                    barHits.style.width = `${hitsPercentage}%`;
-                    barMisses.style.width = `${100 - hitsPercentage}%`;
-                    barHits.textContent = hitsPercentage > 10 ? stats.cache.hits : '';
-                    barMisses.textContent = (100 - hitsPercentage) > 10 ? stats.cache.misses : '';
+                    if (cacheEnabled) {
+                        // Update Cache Performance Card
+                        const hitRatio = (stats.cache.hit_ratio * 100).toFixed(2);
+                        document.getElementById('stat-cache-hit-ratio').textContent = hitRatio;
+                        document.getElementById('stat-cache-hits').textContent = stats.cache.hits;
+                        document.getElementById('stat-cache-misses').textContent = stats.cache.misses;
 
+                        // Update Bar Chart
+                        const total = stats.cache.hits + stats.cache.misses;
+                        const hitsPercentage = total > 0 ? (stats.cache.hits / total) * 100 : 0;
+                        const barHits = document.getElementById('bar-hits');
+                        const barMisses = document.getElementById('bar-misses');
+                        barHits.style.width = `${hitsPercentage}%`;
+                        barMisses.style.width = `${100 - hitsPercentage}%`;
+                        barHits.textContent = hitsPercentage > 10 ? stats.cache.hits : '';
+                        barMisses.textContent = (100 - hitsPercentage) > 10 ? stats.cache.misses : '';
 
-                    // Update Cache Details Card
-                    document.getElementById('stat-cache-entries').textContent = stats.cache.entry_count;
-                    document.getElementById('stat-cache-size').textContent = (stats.cache.size_bytes / 1024 / 1024).toFixed(2);
+                        // Update Cache Details Card
+                        document.getElementById('stat-cache-entries').textContent = stats.cache.entry_count;
+                        document.getElementById('stat-cache-size').textContent = (stats.cache.size_bytes / 1024 / 1024).toFixed(2);
+                    }
 
                     // Update Memory Usage Card
                     document.getElementById('stat-mem-alloc').textContent = stats.runtime.alloc_mb;
@@ -437,7 +456,7 @@
                     console.error("Failed to load stats:", error);
                 }
             }
-            
+
             // --- UI RENDERING & EVENT HANDLERS ---
             function updateUIBeforeFetch() {
                 searchStatus.textContent = 'Searching...';
@@ -445,7 +464,7 @@
                 resultsTable.style.display = 'none';
                 paginationControls.style.display = 'none';
             }
-    
+
             function handleSortClick(e) {
                 const header = e.target.closest('.sortable');
                 if (!header) return;
@@ -456,10 +475,10 @@
                     state.currentSort.key = sortKey;
                     state.currentSort.direction = ['Size', 'Seeders', 'Leechers', 'PublishDate'].includes(sortKey) ? 'desc' : 'asc';
                 }
-                state.currentPage = 1; 
+                state.currentPage = 1;
                 renderCurrentPage();
             }
-            
+
             function populateIndexerDropdown() {
                 const indexerSelect = document.getElementById('indexer-select');
                 indexerSelect.innerHTML = '<option value="all">All Indexers</option>';
@@ -474,12 +493,12 @@
                 updateCategoryDropdown();
                 indexerSelect.addEventListener('change', updateCategoryDropdown);
             }
-    
+
             function updateCategoryDropdown() {
                 const categorySelect = document.getElementById('category-select');
                 const selectedIndexerKey = document.getElementById('indexer-select').value;
                 categorySelect.innerHTML = '<option value="">All Categories</option>';
-    
+
                 let categories = {};
                 if (selectedIndexerKey === 'all') {
                     Object.values(state.allIndexersData).forEach(idx => {
@@ -488,7 +507,7 @@
                 } else if (state.allIndexersData[selectedIndexerKey]) {
                     categories = state.allIndexersData[selectedIndexerKey].categories;
                 }
-                
+
                 Object.entries(categories).sort(([,a],[,b]) => a.localeCompare(b)).forEach(([id, name]) => {
                     const option = document.createElement('option');
                     option.value = id;
@@ -496,15 +515,15 @@
                     categorySelect.appendChild(option);
                 });
             }
-            
+
             function renderStatusGrid() {
                 const statusGrid = document.getElementById('status-grid');
                 const filter = document.getElementById('type-filter').value;
                 statusGrid.innerHTML = '';
-                
+
                 Object.entries(state.allIndexersData).forEach(([key, indexer]) => {
                     if (filter !== 'all' && indexer.type !== filter) return;
-    
+
                     const card = document.createElement('div');
                     card.className = 'status-card';
                     card.innerHTML = `
@@ -523,18 +542,18 @@
                     `;
                     statusGrid.appendChild(card);
                 });
-    
+
                 statusGrid.onclick = handleStatusGridClick;
                 statusGrid.onchange = handleStatusGridChange;
                 document.getElementById('test-all-btn').onclick = () => document.querySelectorAll('.test-btn').forEach(btn => btn.click());
             }
-            
+
             // --- Settings Modal Logic ---
             function setupSettingsModal() {
                 const modal = document.getElementById('settings-modal');
                 document.querySelector('.modal-close').onclick = () => modal.style.display = "none";
                 window.onclick = (event) => { if (event.target == modal) modal.style.display = "none"; };
-                
+
                 document.getElementById('settings-modal-form').addEventListener('submit', async (e) => {
                     e.preventDefault();
                     const formData = new FormData(e.target);
@@ -543,56 +562,56 @@
                     formData.forEach((value, name) => {
                         if (name !== 'key') config[name] = value;
                     });
-                    
+
                     const indexer = state.allIndexersData[key];
                     indexer.settings?.forEach(setting => {
                         if (setting.type === 'checkbox' && !config.hasOwnProperty(setting.name)) {
                             config[setting.name] = "false";
                         }
                     });
-    
+
                     const statusEl = document.getElementById('settings-modal-status');
                     statusEl.textContent = 'Saving...';
-                    
+
                     try {
                         const response = await fetchWithAuth('/api/v1/indexer/config', {
                             method: 'POST', body: JSON.stringify({ key, config })
                         });
                         if (!response.ok) throw new Error('Failed to save configuration.');
-                        
+
                         statusEl.textContent = '✅ Saved successfully!';
                         await fetchIndexerData();
                         setTimeout(() => modal.style.display = "none", 1500);
                     } catch (error) {
-                         statusEl.textContent = `Error: ${error.message}`;
+                        statusEl.textContent = `Error: ${error.message}`;
                     }
                 });
             }
-            
+
             function openSettingsModal(key) {
                 const indexer = state.allIndexersData[key];
                 if (!indexer) return;
-    
+
                 const modal = document.getElementById('settings-modal');
                 const form = document.getElementById('settings-modal-form');
-                
+
                 document.getElementById('settings-modal-title').textContent = `${indexer.name} Settings`;
                 document.getElementById('settings-modal-desc').textContent = indexer.description;
                 document.getElementById('settings-modal-status').textContent = '';
-                
+
                 form.innerHTML = `<input type="hidden" name="key" value="${key}">`;
-                
+
                 indexer.settings?.forEach(setting => {
                     const group = document.createElement('div');
                     group.className = 'form-group';
-    
+
                     const label = document.createElement('label');
                     label.htmlFor = `setting-${setting.name}`;
                     label.textContent = setting.label;
-                    
+
                     let input;
                     const currentValue = indexer.user_config[setting.name] || setting.default;
-    
+
                     switch(setting.type) {
                         case 'select':
                             input = document.createElement('select');
@@ -631,19 +650,19 @@
                     }
                     form.appendChild(group);
                 });
-    
+
                 const submitButton = document.createElement('button');
                 submitButton.type = 'submit';
                 submitButton.textContent = 'Save Configuration';
                 form.appendChild(submitButton);
-    
+
                 modal.style.display = 'flex';
             }
-    
+
             async function handleStatusGridClick(e) {
                 const key = e.target.dataset.key;
                 if (!key) return;
-    
+
                 if (e.target.matches('.test-btn')) {
                     const statusText = document.getElementById(`status-text-${key}`);
                     statusText.textContent = 'Testing...';
@@ -660,7 +679,7 @@
                 }
             }
             async function handleStatusGridChange(e) {
-                 if (e.target.matches('.enable-switch')) {
+                if (e.target.matches('.enable-switch')) {
                     const key = e.target.dataset.key;
                     const enabled = e.target.checked;
                     try {
@@ -676,7 +695,7 @@
                     }
                 }
             }
-            
+
             // --- RENDER & HELPER Functions ---
 
             function toggleIndexerColumn() {
@@ -694,15 +713,15 @@
                     paginationControls.style.display = 'none';
                     return;
                 }
-                
+
                 sortResults(state.allResults);
-                
+
                 searchStatus.style.display = 'none';
                 resultsTable.style.display = 'table';
                 resultsBody.innerHTML = '';
-    
+
                 const pageResults = state.allResults.slice((state.currentPage - 1) * state.resultsPerPage, state.currentPage * state.resultsPerPage);
-    
+
                 pageResults.forEach(item => {
                     const row = resultsBody.insertRow();
                     row.innerHTML = `
@@ -718,13 +737,13 @@
                             </a>
                         </td>`;
                 });
-    
+
                 const totalPages = Math.ceil(state.allResults.length / state.resultsPerPage);
                 document.getElementById('page-info').textContent = `Page ${state.currentPage} of ${totalPages}`;
                 document.getElementById('prev-page-btn').disabled = state.currentPage === 1;
                 document.getElementById('next-page-btn').disabled = state.currentPage === totalPages;
                 paginationControls.style.display = 'flex';
-                
+
                 document.querySelectorAll('#results-table thead th.sortable').forEach(th => {
                     const sortKey = th.dataset.sort;
                     const arrow = th.querySelector('.sort-arrow');
@@ -733,9 +752,9 @@
                     else arrow.innerHTML = '';
                 });
 
-                 toggleIndexerColumn();
+                toggleIndexerColumn();
             }
-    
+
             function sortResults(results) {
                 const { key, direction } = state.currentSort;
                 const dir = direction === 'asc' ? 1 : -1;
@@ -746,13 +765,13 @@
                     return (valA - valB) * dir;
                 });
             }
-    
+
             async function setupFlexgetURL() {
                 const flexgetRes = await fetchWithAuth('/api/v1/flexget_key');
                 const flexgetData = await flexgetRes.json();
                 document.getElementById('flexget-url-input').value = `${window.location.origin}/torznab/all?apikey=${flexgetData.key}`;
             }
-    
+
             function setupLogViewer() {
                 const logContainer = document.getElementById('log-container');
                 const logFilter = document.getElementById('log-filter');
@@ -775,7 +794,7 @@
                     });
                 }
             }
-    
+
             async function fetchWithAuth(url, options = {}) {
                 const headers = { ...options.headers };
                 headers['Authorization'] = `Bearer ${state.sessionToken}`;
@@ -784,7 +803,7 @@
                 if (response.status === 401) window.location.reload();
                 return response;
             }
-    
+
             function formatBytes(bytes, decimals = 2) {
                 if (!bytes) return '0 Bytes';
                 const k = 1024;

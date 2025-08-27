@@ -70,7 +70,7 @@ func runScheduledSearch(cfg *config.ConfigOptions, idxManager *indexer.Manager, 
 	}
 	slog.Info("Scheduler: Successfully fetched releases", "indexer", indexerDef.Name, "count", len(results))
 
-	if len(results) > 0 {
+	if len(results) > 0 && appCache != nil {
 		latestCacheKey := api.GenerateLatestCacheKey(indexerKey)
 		cachedResult := api.CachedSearchResult{
 			Results:    results,
@@ -126,26 +126,32 @@ func main() {
 
 	slog.Info("Configuration loaded",
 		"port", cfg.AppPort,
+		"cache_enabled", cfg.CacheEnabled,
 		"cache_ttl", cfg.CacheTTL,
 		"web_ui", cfg.WebUIEnabled,
 		"definitions_path", cfg.DefinitionsPath,
 	)
 
 	// --- Initialize Enhanced Cache ---
-	slog.Info("Initializing cache", "path", cfg.DBPath, "max_size_mb", cfg.MaxCacheSize/(1024*1024))
-	appCache, err := cache.NewCacheWithConfig(cfg.DBPath, cfg.MaxCacheSize)
-	if err != nil {
-		slog.Error("Failed to initialize cache", "error", err)
-		os.Exit(1)
-	}
+	var appCache *cache.Cache
+	if cfg.CacheEnabled {
+		slog.Info("Initializing cache", "path", cfg.DBPath, "max_size_mb", cfg.MaxCacheSize/(1024*1024))
+		appCache, err = cache.NewCacheWithConfig(cfg.DBPath, cfg.MaxCacheSize)
+		if err != nil {
+			slog.Error("Failed to initialize cache", "error", err)
+			os.Exit(1)
+		}
 
-	// Display initial cache statistics
-	stats := appCache.GetStats()
-	slog.Info("Cache initialized",
-		"existing_entries", stats.EntryCount,
-		"size_mb", stats.Size/(1024*1024),
-		"hit_ratio", stats.HitRatio,
-	)
+		// Display initial cache statistics
+		stats := appCache.GetStats()
+		slog.Info("Cache initialized",
+			"existing_entries", stats.EntryCount,
+			"size_mb", stats.Size/(1024*1024),
+			"hit_ratio", stats.HitRatio,
+		)
+	} else {
+		slog.Info("Cache is disabled")
+	}
 
 	// --- Initialize Security ---
 	auth.Configure(cfg.JWTSecret)
@@ -176,7 +182,7 @@ func main() {
 	}
 
 	// --- Scheduler Setup ---
-	if cfg.CronjobsEnabled {
+	if cfg.CronjobsEnabled && cfg.CacheEnabled {
 		slog.Info("Scheduler is enabled")
 		c := cron.New()
 
@@ -236,26 +242,28 @@ func main() {
 			go func(workerID int) {
 				defer wg.Done()
 				for j := range jobs {
-					latestCacheKey := api.GenerateLatestCacheKey(j.key)
-					// --- START CHANGE: Use the new read-only Get method ---
-					cachedData, found := appCache.GetWithoutUpdate(latestCacheKey)
-					// --- END CHANGE ---
+					if appCache != nil {
+						latestCacheKey := api.GenerateLatestCacheKey(j.key)
+						// --- START CHANGE: Use the new read-only Get method ---
+						cachedData, found := appCache.GetWithoutUpdate(latestCacheKey)
+						// --- END CHANGE ---
 
-					if found {
-						var cachedResult api.CachedSearchResult
-						if err := json.Unmarshal(cachedData, &cachedResult); err == nil {
-							scheduleInterval, err := getScheduleInterval(j.def.Schedule)
-							if err != nil {
-								slog.Warn("Could not parse schedule for initial run check, running job anyway.", "worker", workerID, "indexer", j.def.Name, "error", err)
-								runScheduledSearch(cfg, idxManager, appCache, j.key, j.def)
-								continue
-							}
+						if found {
+							var cachedResult api.CachedSearchResult
+							if err := json.Unmarshal(cachedData, &cachedResult); err == nil {
+								scheduleInterval, err := getScheduleInterval(j.def.Schedule)
+								if err != nil {
+									slog.Warn("Could not parse schedule for initial run check, running job anyway.", "worker", workerID, "indexer", j.def.Name, "error", err)
+									runScheduledSearch(cfg, idxManager, appCache, j.key, j.def)
+									continue
+								}
 
-							if time.Since(cachedResult.CachedAt) < scheduleInterval {
-								slog.Info("Scheduler: Skipping initial run, cache is recent", "worker", workerID, "indexer", j.def.Name, "cache_age", time.Since(cachedResult.CachedAt).Round(time.Second))
-								continue
+								if time.Since(cachedResult.CachedAt) < scheduleInterval {
+									slog.Info("Scheduler: Skipping initial run, cache is recent", "worker", workerID, "indexer", j.def.Name, "cache_age", time.Since(cachedResult.CachedAt).Round(time.Second))
+									continue
+								}
+								slog.Info("Scheduler: Cache is stale, performing initial run", "worker", workerID, "indexer", j.def.Name)
 							}
-							slog.Info("Scheduler: Cache is stale, performing initial run", "worker", workerID, "indexer", j.def.Name)
 						}
 					}
 					runScheduledSearch(cfg, idxManager, appCache, j.key, j.def)
@@ -274,7 +282,7 @@ func main() {
 		// Set the reload callback for the indexer manager
 		idxManager.SetReloadCallback(updateScheduledJobs)
 	} else {
-		slog.Info("Scheduler is disabled by environment variable")
+		slog.Info("Scheduler is disabled (either by CRONJOBS_ENABLED=false or CACHE_ENABLED=false)")
 	}
 
 	// --- API Server Setup ---
@@ -325,9 +333,13 @@ func main() {
 
 	// Add cache statistics endpoint (useful for monitoring)
 	r.Get("/api/cache/stats", func(w http.ResponseWriter, r *http.Request) {
-		stats := appCache.GetStats()
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(stats)
+		if appCache != nil {
+			stats := appCache.GetStats()
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(stats)
+		} else {
+			http.Error(w, `{"error": "cache is disabled"}`, http.StatusServiceUnavailable)
+		}
 	})
 
 	// Torznab API endpoints
@@ -373,18 +385,26 @@ func main() {
 		// Enhanced cache management endpoints
 		r.Get("/api/v1/cache/stats", apiHandler.CacheStatsHandler)
 		r.Get("/api/v1/cache/popular", func(w http.ResponseWriter, r *http.Request) {
-			popular := appCache.GetPopularKeys(10)
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"popular_keys": popular,
-			})
+			if appCache != nil {
+				popular := appCache.GetPopularKeys(10)
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"popular_keys": popular,
+				})
+			} else {
+				w.WriteHeader(http.StatusNoContent)
+			}
 		})
 		r.Delete("/api/v1/cache", apiHandler.CacheManagementHandler)
 		r.Post("/api/v1/cache/clear", func(w http.ResponseWriter, r *http.Request) {
-			appCache.Clear()
-			slog.Info("Cache cleared by user request")
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]string{"status": "cleared"})
+			if appCache != nil {
+				appCache.Clear()
+				slog.Info("Cache cleared by user request")
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(map[string]string{"status": "cleared"})
+			} else {
+				w.WriteHeader(http.StatusNoContent)
+			}
 		})
 
 		// Stats endpoint
@@ -426,16 +446,18 @@ func startServer(server *http.Server, idxManager *indexer.Manager, appCache *cac
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Display final cache statistics before shutdown
-	stats := appCache.GetStats()
-	slog.Info("Final cache statistics",
-		"hits", stats.Hits,
-		"misses", stats.Misses,
-		"hit_ratio", stats.HitRatio,
-		"entries", stats.EntryCount,
-		"size_mb", stats.Size/(1024*1024),
-		"evictions", stats.Evictions,
-	)
+	if appCache != nil {
+		// Display final cache statistics before shutdown
+		stats := appCache.GetStats()
+		slog.Info("Final cache statistics",
+			"hits", stats.Hits,
+			"misses", stats.Misses,
+			"hit_ratio", stats.HitRatio,
+			"entries", stats.EntryCount,
+			"size_mb", stats.Size/(1024*1024),
+			"evictions", stats.Evictions,
+		)
+	}
 
 	// Shutdown HTTP server
 	if err := server.Shutdown(ctx); err != nil {
@@ -451,11 +473,13 @@ func startServer(server *http.Server, idxManager *indexer.Manager, appCache *cac
 		slog.Info("Indexer manager closed")
 	}
 
-	// Close enhanced cache
-	if err := appCache.Close(); err != nil {
-		slog.Error("Error closing cache", "error", err)
-	} else {
-		slog.Info("Cache closed")
+	if appCache != nil {
+		// Close enhanced cache
+		if err := appCache.Close(); err != nil {
+			slog.Error("Error closing cache", "error", err)
+		} else {
+			slog.Info("Cache closed")
+		}
 	}
 
 	slog.Info("Application shutdown complete")
