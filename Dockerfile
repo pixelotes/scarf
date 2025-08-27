@@ -16,7 +16,7 @@ RUN go mod download
 COPY . .
 
 # Build the application, creating a static binary and stripping debug info to reduce size.
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /app/scarf .
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o /app/scarf .
 
 # --- Stage 2: Final Image ---
 # Use the minimal scratch base image.
