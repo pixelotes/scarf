@@ -37,6 +37,14 @@ var (
 	dateTimeRegex   = regexp.MustCompile(`\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}`)
 )
 
+var (
+	yamlBufferPool = sync.Pool{
+		New: func() interface{} {
+			return new(bytes.Buffer)
+		},
+	}
+)
+
 // Manager holds all loaded indexer definitions and authenticated clients
 type Manager struct {
 	Indexers             map[string]*Definition
@@ -55,7 +63,7 @@ type Manager struct {
 
 // newHttpClient creates a new HTTP client with our logging transport and custom TLS settings.
 func newHttpClient(jar http.CookieJar) *http.Client {
-	skipVerify := config.GetEnvAsBool("INSECURE_SKIP_VERIFY", false)
+	skipVerify := config.GetEnvAsBool("SKIP_TLS_VERIFY", false)
 	if skipVerify {
 		slog.Warn("TLS certificate verification is disabled. Use with caution.")
 	}
@@ -66,10 +74,12 @@ func newHttpClient(jar http.CookieJar) *http.Client {
 			Timeout:   10 * time.Second,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
+		ForceAttemptHTTP2:     true,
 		TLSClientConfig:       &tls.Config{InsecureSkipVerify: skipVerify},
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
 		MaxIdleConnsPerHost:   10,
+		ExpectContinueTimeout: 1 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 10 * time.Second,
 		DisableKeepAlives:     false,
@@ -499,8 +509,12 @@ func (m *Manager) UpdateIndexerUserConfig(key string, config map[string]string) 
 		}
 	}
 
-	var buf bytes.Buffer
-	encoder := yaml.NewEncoder(&buf)
+	// Get a buffer from the pool
+	buf := yamlBufferPool.Get().(*bytes.Buffer)
+	buf.Reset()                   // Ensure the buffer is empty before use
+	defer yamlBufferPool.Put(buf) // Return the buffer to the pool when done
+
+	encoder := yaml.NewEncoder(buf)
 	encoder.SetIndent(2)
 	if err := encoder.Encode(&node); err != nil {
 		return fmt.Errorf("could not marshal yaml: %w", err)

@@ -120,7 +120,7 @@ func main() {
 		slog.Info("Debug mode enabled - verbose logging active")
 	}
 
-	if cfg.InsecureSkipVerify {
+	if cfg.SkipTLSVerify {
 		slog.Warn("TLS certificate verification is DISABLED - use only for testing!")
 	}
 
@@ -236,7 +236,7 @@ func main() {
 		var wg sync.WaitGroup
 
 		// Define the number of concurrent workers.
-		numWorkers := 4
+		numWorkers := cfg.MaxConcurrentSearches
 		for w := 1; w <= numWorkers; w++ {
 			wg.Add(1)
 			go func(workerID int) {
@@ -325,6 +325,7 @@ func main() {
 		cfg.FlexgetAPIKey,
 		cfg.UIPassword,
 		cfg.DefaultAPILimit,
+		cfg.MaxConcurrentSearches,
 	)
 
 	// --- Public / Unauthenticated Routes ---

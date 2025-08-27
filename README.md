@@ -62,9 +62,11 @@ Scarf is configured using environment variables. Here are the most important one
 | ------------------- | --------------------------------------------------------------------------- | ---------------------------- |
 | `APP_PORT`          | The port the application will listen on.                                    | `8080`                       |
 | `DEFINITIONS_PATH`  | Path to the indexer definition files.                                       | `./definitions`              |
+| `SKIP_TLS_VERIFY`  | Skip TLS certs verification (highly insecure, use with care).                                       | `false`              |
 | `CACHE_ENABLED`         | Enable or disable cache.                                           | `true`                        |
 | `CACHE_TTL`         | How long to cache search results.                                           | `15m`                        |
 | `LATEST_CACHE_TTL`  | How long to cache the latest releases.                                      | `24h`                        |
+| `MAX_CACHE_SIZE_MB` | Maximum cache size in megabytes (minimum 10MB) | '500' |
 | `DB_PATH`           | Path to the SQLite database file for the cache.                             | `./data/indexer-cache.db`    |
 | `WEB_UI`            | Enable or disable the web UI.                                               | `true`                       |
 | `DEBUG`             | Enable debug logging.                                                       | `false`                      |
@@ -75,6 +77,7 @@ Scarf is configured using environment variables. Here are the most important one
 | `DEFAULT_API_LIMIT` | Default number of results for API clients that don't support pagination.    | `100`                        |
 | `ENABLE_CRONJOBS`   | Enables or disables the job that caches the latest tracker releases         | `true`                       |
 | `MAX_FAILURES`   | Failure threshold for disabling an indexer. Set to 0 to disable this feature.    | `5`                       |
+| `MAX_CONCURRENT_SEARCHES`   | A lower value might reduce memory and cpu usage, but searches might take longer.    | `4`                       |
 
 ---
 
@@ -167,6 +170,15 @@ category_mappings:
 
 For more complex sites, you can use the details_url and download_selector fields to perform a two-step search, where Scarf first finds a details page and then extracts the magnet link from that page.
 
+## Tip: Running on low-end devices
+Here are some tips for running Scarf in memory-constrained devices:
+- Disable the jobs that cache latest releases (`ENABLE_CRONJOBS=false`)
+- Indexer definitions are kept in memory, so delete all indexers except the ones you are really going to use (4 or 5)
+- Lower the maximum number of concurrent searches (`MAX_CONCURRENT_SEARCHES=2"`)
+- If you don't need it, you can disable the web UI (`WEB_UI=false`)
+- Disable the debug output (`DEBUG=false`)
+- Reduce the cache size (`MAX_CACHE_SIZE_MB=10`)
+- As a last resort, disable cache globally to reduce memory usage (`CACHE_ENABLED=false`)
 
 ## Roadmap
 
@@ -183,12 +195,13 @@ For more complex sites, you can use the details_url and download_selector fields
   - [X] Add support for trackers with user / password authentication
   - [X] Add dynamic config popup based on tracker-defined settings
   - [X] Add support for sending custom headers
-- [X] Add support for FlareSolverr (untested)
+- [X] Add support for FlareSolverr (experimental, untested)
 - [X] Add specific search modes (tv, movie, etc.)
 - [X] Store the results in a cache
 - [X] Automatically disable failing indexers
 - [X] Add an statistics tab to the UI
 - [X] Make it possible to completely disable the cache
+- [X] Limit concurrent searches (configurable via env var)
 - [ ] Add recent searches to the UI (maybe in the search textbox)
 - [ ] Add webhook notifications for health checks (reuse the code from subtitlarr/go)
 - [ ] Dynamic search modes list for "/all" endpoint (currently only shows basic search)

@@ -16,6 +16,7 @@ import (
 
 	"go-indexer/auth"
 	"go-indexer/cache"
+	"go-indexer/config"
 	"go-indexer/indexer"
 
 	"github.com/go-chi/chi/v5"
@@ -24,16 +25,17 @@ import (
 
 // APIHandler holds all dependencies for all API endpoints.
 type APIHandler struct {
-	Manager         *indexer.Manager
-	Cache           *cache.Cache
-	CacheTTL        time.Duration
-	LatestCacheTTL  time.Duration
-	FlexgetAPIKey   string
-	UIPassword      string
-	StartTime       time.Time
-	rateLimiters    map[string]*rate.Limiter
-	rlMutex         sync.RWMutex
-	DefaultAPILimit int
+	Manager               *indexer.Manager
+	Cache                 *cache.Cache
+	CacheTTL              time.Duration
+	LatestCacheTTL        time.Duration
+	FlexgetAPIKey         string
+	UIPassword            string
+	StartTime             time.Time
+	rateLimiters          map[string]*rate.Limiter
+	rlMutex               sync.RWMutex
+	DefaultAPILimit       int
+	MaxConcurrentSearches int
 }
 
 // Represents the stats object
@@ -80,17 +82,18 @@ func (h *APIHandler) AppStatsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // NewAPIHandler creates a new API handler with initialized rate limiters
-func NewAPIHandler(manager *indexer.Manager, cache *cache.Cache, cacheTTL, latestCacheTTL time.Duration, flexgetKey, uiPassword string, defaultLimit int) *APIHandler {
+func NewAPIHandler(manager *indexer.Manager, cache *cache.Cache, cacheTTL, latestCacheTTL time.Duration, flexgetKey, uiPassword string, defaultLimit int, maxConcurrent int) *APIHandler {
 	return &APIHandler{
-		Manager:         manager,
-		Cache:           cache,
-		CacheTTL:        cacheTTL,
-		LatestCacheTTL:  latestCacheTTL,
-		FlexgetAPIKey:   flexgetKey,
-		UIPassword:      uiPassword,
-		StartTime:       time.Now(),
-		rateLimiters:    make(map[string]*rate.Limiter),
-		DefaultAPILimit: defaultLimit,
+		Manager:               manager,
+		Cache:                 cache,
+		CacheTTL:              cacheTTL,
+		LatestCacheTTL:        latestCacheTTL,
+		FlexgetAPIKey:         flexgetKey,
+		UIPassword:            uiPassword,
+		StartTime:             time.Now(),
+		rateLimiters:          make(map[string]*rate.Limiter),
+		DefaultAPILimit:       defaultLimit,
+		MaxConcurrentSearches: maxConcurrent,
 	}
 }
 
@@ -325,57 +328,73 @@ func (h *APIHandler) searchAll(params indexer.SearchParams) ([]indexer.SearchRes
 	allIndexers := h.Manager.GetAllIndexers()
 
 	var wg sync.WaitGroup
-
-	// Track which indexers need live queries vs cache hits
 	resultsChan := make(chan []indexer.SearchResult, len(allIndexers))
+
+	// Worker pool to limit concurrency
+	maxConcurrent, _ := strconv.Atoi(config.GetEnv("MAX_CONCURRENT_SEARCHES", "4"))
+	searchJobs := make(chan struct {
+		Key    string
+		Params indexer.SearchParams
+	}, len(allIndexers))
+
+	for i := 0; i < maxConcurrent; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range searchJobs {
+				k := job.Key
+				p := job.Params
+
+				if h.Cache != nil {
+					if cachedResults, found := GetCachedSearchResults(h.Cache, k, p.Query, p.Category); found {
+						slog.Info("Aggregate search served from cache for indexer", "indexer", k, "query", p.Query)
+						if len(cachedResults) > 0 {
+							resultsChan <- cachedResults
+						}
+						continue
+					}
+				}
+
+				limiter := h.getRateLimiter(k)
+				if !limiter.Allow() {
+					slog.Warn("Rate limit exceeded during searchAll", "indexer", k)
+					continue
+				}
+
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+
+				slog.Info("Aggregate search (cache miss)", "indexer", k, "query", p.Query)
+				results, err := h.Manager.Search(ctx, k, p)
+				if err != nil {
+					if err == context.DeadlineExceeded {
+						slog.Warn("Search timed out for indexer", "indexer", k)
+					} else {
+						slog.Warn("Search failed for indexer during searchAll", "indexer", k, "query", p.Query, "error", err)
+					}
+					continue
+				}
+
+				if len(results) > 0 {
+					if h.Cache != nil {
+						CacheSearchResults(h.Cache, k, p.Query, p.Category, results, h.CacheTTL)
+					}
+					resultsChan <- results
+				}
+			}
+		}()
+	}
 
 	for key, def := range allIndexers {
 		if !def.Enabled {
 			continue
 		}
-
-		wg.Add(1)
-		go func(k string, p indexer.SearchParams) {
-			defer wg.Done()
-
-			if h.Cache != nil {
-				if cachedResults, found := GetCachedSearchResults(h.Cache, k, p.Query, p.Category); found {
-					slog.Info("Aggregate search served from cache for indexer", "indexer", k, "query", p.Query)
-					if len(cachedResults) > 0 {
-						resultsChan <- cachedResults
-					}
-					return
-				}
-			}
-
-			limiter := h.getRateLimiter(k)
-			if !limiter.Allow() {
-				slog.Warn("Rate limit exceeded during searchAll", "indexer", k)
-				return
-			}
-
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-
-			slog.Info("Aggregate search (cache miss)", "indexer", k, "query", p.Query)
-			results, err := h.Manager.Search(ctx, k, p)
-			if err != nil {
-				if err == context.DeadlineExceeded {
-					slog.Warn("Search timed out for indexer", "indexer", k)
-				} else {
-					slog.Warn("Search failed for indexer during searchAll", "indexer", k, "query", p.Query, "error", err)
-				}
-				return
-			}
-
-			if len(results) > 0 {
-				if h.Cache != nil {
-					CacheSearchResults(h.Cache, k, p.Query, p.Category, results, h.CacheTTL)
-				}
-				resultsChan <- results
-			}
-		}(key, params)
+		searchJobs <- struct {
+			Key    string
+			Params indexer.SearchParams
+		}{key, params}
 	}
+	close(searchJobs)
 
 	wg.Wait()
 	close(resultsChan)
