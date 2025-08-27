@@ -48,6 +48,12 @@ func GetConfig() (*ConfigOptions, error) {
 		JWTSecret:             GetEnv("JWT_SECRET", GenerateRandomString(32)),
 		FlareSolverrURL:       GetEnv("FLARESOLVERR_URL", ""),
 		SkipTLSVerify:         GetEnvAsBool("SKIP_TLS_VERIFY", false),
+		MaxCacheSize:          GetEnvAsInt64("MAX_CACHE_SIZE_MB", 500) * 1024 * 1024, // Convert MB to bytes
+		RequestTimeout:        GetEnvAsDuration("REQUEST_TIMEOUT", 20*time.Second),
+		DefaultAPILimit:       GetEnvAsInt("DEFAULT_API_LIMIT", 100),
+		CronjobsEnabled:       GetEnvAsBool("ENABLE_CRONJOBS", true),
+		MaxFailures:           GetEnvAsInt("MAX_FAILURES", 5),
+		CacheEnabled:          GetEnvAsBool("CACHE_ENABLED", true),
 		MaxConcurrentSearches: GetEnvAsInt("MAX_CONCURRENT_SEARCHES", 4),
 	}
 

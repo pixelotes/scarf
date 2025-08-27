@@ -37,6 +37,14 @@ var (
 	dateTimeRegex   = regexp.MustCompile(`\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}`)
 )
 
+var (
+	yamlBufferPool = sync.Pool{
+		New: func() interface{} {
+			return new(bytes.Buffer)
+		},
+	}
+)
+
 // Manager holds all loaded indexer definitions and authenticated clients
 type Manager struct {
 	Indexers             map[string]*Definition
@@ -501,8 +509,12 @@ func (m *Manager) UpdateIndexerUserConfig(key string, config map[string]string) 
 		}
 	}
 
-	var buf bytes.Buffer
-	encoder := yaml.NewEncoder(&buf)
+	// Get a buffer from the pool
+	buf := yamlBufferPool.Get().(*bytes.Buffer)
+	buf.Reset()                   // Ensure the buffer is empty before use
+	defer yamlBufferPool.Put(buf) // Return the buffer to the pool when done
+
+	encoder := yaml.NewEncoder(buf)
 	encoder.SetIndent(2)
 	if err := encoder.Encode(&node); err != nil {
 		return fmt.Errorf("could not marshal yaml: %w", err)

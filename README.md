@@ -66,6 +66,7 @@ Scarf is configured using environment variables. Here are the most important one
 | `CACHE_ENABLED`         | Enable or disable cache.                                           | `true`                        |
 | `CACHE_TTL`         | How long to cache search results.                                           | `15m`                        |
 | `LATEST_CACHE_TTL`  | How long to cache the latest releases.                                      | `24h`                        |
+| `MAX_CACHE_SIZE_MB` | Maximum cache size in megabytes (minimum 10MB) | '500' |
 | `DB_PATH`           | Path to the SQLite database file for the cache.                             | `./data/indexer-cache.db`    |
 | `WEB_UI`            | Enable or disable the web UI.                                               | `true`                       |
 | `DEBUG`             | Enable debug logging.                                                       | `false`                      |
@@ -176,6 +177,7 @@ Here are some tips for running Scarf in memory-constrained devices:
 - Lower the maximum number of concurrent searches (`MAX_CONCURRENT_SEARCHES=2"`)
 - If you don't need it, you can disable the web UI (`WEB_UI=false`)
 - Disable the debug output (`DEBUG=false`)
+- Reduce the cache size (`MAX_CACHE_SIZE_MB=10`)
 - As a last resort, disable cache globally to reduce memory usage (`CACHE_ENABLED=false`)
 
 ## Roadmap
