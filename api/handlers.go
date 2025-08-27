@@ -16,7 +16,6 @@ import (
 
 	"go-indexer/auth"
 	"go-indexer/cache"
-	"go-indexer/config"
 	"go-indexer/indexer"
 
 	"github.com/go-chi/chi/v5"
@@ -82,7 +81,7 @@ func (h *APIHandler) AppStatsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // NewAPIHandler creates a new API handler with initialized rate limiters
-func NewAPIHandler(manager *indexer.Manager, cache *cache.Cache, cacheTTL, latestCacheTTL time.Duration, flexgetKey, uiPassword string, defaultLimit int, maxConcurrent int) *APIHandler {
+func NewAPIHandler(manager *indexer.Manager, cache *cache.Cache, cacheTTL, latestCacheTTL time.Duration, flexgetKey, uiPassword string, defaultLimit, maxConcurrent int) *APIHandler {
 	return &APIHandler{
 		Manager:               manager,
 		Cache:                 cache,
@@ -326,89 +325,74 @@ func (h *APIHandler) ToggleIndexer(w http.ResponseWriter, r *http.Request) {
 func (h *APIHandler) searchAll(params indexer.SearchParams) ([]indexer.SearchResult, error) {
 	slog.Info("Starting aggregate search", "query", params.Query, "category", params.Category)
 	allIndexers := h.Manager.GetAllIndexers()
+	var cacheMisses []string
+	var allResults []indexer.SearchResult
+	var resultsMutex sync.Mutex
 
-	var wg sync.WaitGroup
-	resultsChan := make(chan []indexer.SearchResult, len(allIndexers))
-
-	// Worker pool to limit concurrency
-	maxConcurrent, _ := strconv.Atoi(config.GetEnv("MAX_CONCURRENT_SEARCHES", "4"))
-	searchJobs := make(chan struct {
-		Key    string
-		Params indexer.SearchParams
-	}, len(allIndexers))
-
-	for i := 0; i < maxConcurrent; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for job := range searchJobs {
-				k := job.Key
-				p := job.Params
-
-				if h.Cache != nil {
-					if cachedResults, found := GetCachedSearchResults(h.Cache, k, p.Query, p.Category); found {
-						slog.Info("Aggregate search served from cache for indexer", "indexer", k, "query", p.Query)
-						if len(cachedResults) > 0 {
-							resultsChan <- cachedResults
-						}
-						continue
-					}
-				}
-
-				limiter := h.getRateLimiter(k)
-				if !limiter.Allow() {
-					slog.Warn("Rate limit exceeded during searchAll", "indexer", k)
-					continue
-				}
-
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
-
-				slog.Info("Aggregate search (cache miss)", "indexer", k, "query", p.Query)
-				results, err := h.Manager.Search(ctx, k, p)
-				if err != nil {
-					if err == context.DeadlineExceeded {
-						slog.Warn("Search timed out for indexer", "indexer", k)
-					} else {
-						slog.Warn("Search failed for indexer during searchAll", "indexer", k, "query", p.Query, "error", err)
-					}
-					continue
-				}
-
-				if len(results) > 0 {
-					if h.Cache != nil {
-						CacheSearchResults(h.Cache, k, p.Query, p.Category, results, h.CacheTTL)
-					}
-					resultsChan <- results
-				}
-			}
-		}()
-	}
-
+	// Step 1: Sequentially check the cache for all enabled indexers.
 	for key, def := range allIndexers {
 		if !def.Enabled {
 			continue
 		}
-		searchJobs <- struct {
-			Key    string
-			Params indexer.SearchParams
-		}{key, params}
-	}
-	close(searchJobs)
-
-	wg.Wait()
-	close(resultsChan)
-
-	// Combine all results and deduplicate
-	var allResults []indexer.SearchResult
-	for results := range resultsChan {
-		allResults = append(allResults, results...)
+		if h.Cache != nil {
+			if cachedResults, found := GetCachedSearchResults(h.Cache, key, params.Query, params.Category); found {
+				slog.Info("Aggregate search served from cache", "indexer", key, "query", params.Query)
+				allResults = append(allResults, cachedResults...)
+			} else {
+				cacheMisses = append(cacheMisses, key)
+			}
+		} else {
+			cacheMisses = append(cacheMisses, key)
+		}
 	}
 
-	// Deduplicate results
+	// Step 2: Concurrently search for all the cache misses.
+	if len(cacheMisses) > 0 {
+		var wg sync.WaitGroup
+		workerJobs := make(chan string, len(cacheMisses))
+
+		for i := 0; i < h.MaxConcurrentSearches; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for indexerKey := range workerJobs {
+					slog.Info("Aggregate search (cache miss)", "indexer", indexerKey, "query", params.Query)
+					limiter := h.getRateLimiter(indexerKey)
+					if !limiter.Allow() {
+						slog.Warn("Rate limit exceeded", "indexer", indexerKey)
+						continue
+					}
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					liveResults, err := h.Manager.Search(ctx, indexerKey, params)
+					cancel()
+
+					if err != nil {
+						slog.Warn("Search failed for indexer", "indexer", indexerKey, "query", params.Query, "error", err)
+						continue
+					}
+
+					if len(liveResults) > 0 {
+						if h.Cache != nil {
+							CacheSearchResults(h.Cache, indexerKey, params.Query, params.Category, liveResults, h.CacheTTL)
+						}
+						resultsMutex.Lock()
+						allResults = append(allResults, liveResults...)
+						resultsMutex.Unlock()
+					}
+				}
+			}()
+		}
+
+		for _, key := range cacheMisses {
+			workerJobs <- key
+		}
+		close(workerJobs)
+
+		wg.Wait()
+	}
+
+	// Step 3: De-duplicate and sort the final combined results.
 	uniqueResults := h.deduplicateResults(allResults)
-
-	// Sort by publish date
 	sort.Slice(uniqueResults, func(i, j int) bool {
 		return uniqueResults[i].PublishDate.After(uniqueResults[j].PublishDate)
 	})
@@ -484,8 +468,6 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	forceFresh := r.URL.Query().Get("fresh") == "true"
-
 	if indexerKey == "" {
 		http.Error(w, `{"error": "indexer parameter is required"}`, http.StatusBadRequest)
 		return
@@ -495,54 +477,26 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 	var err error
 	var cacheHit bool
 
-	// Check unified cache first (unless forcing fresh)
-	if !forceFresh && h.Cache != nil {
-		if indexerKey == "all" {
-			results, err = h.searchAll(searchParams)
-			// searchAll handles its own caching, so we consider this a cache operation
-			cacheHit = false // We'll let searchAll report individual cache hits
-		} else {
-			// Try unified cache for individual indexer
+	if indexerKey == "all" {
+		results, err = h.searchAll(searchParams)
+		cacheHit = false // We report MISS on the aggregate even if sub-queries hit cache.
+	} else {
+		// This logic is for individual indexer searches
+		if h.Cache != nil {
 			if cachedResults, found := GetCachedSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category); found {
 				slog.Info("Web search request served from cache", "indexer", indexerKey, "query", searchParams.Query)
 				results = cachedResults
 				cacheHit = true
-			} else {
-				// Cache miss - perform live search and then cache
-				slog.Info("Web search request (cache miss)", "indexer", indexerKey, "query", searchParams.Query, "category", searchParams.Category)
-
-				limiter := h.getRateLimiter(indexerKey)
-				if !limiter.Allow() {
-					http.Error(w, `{"error": "Rate limit exceeded, please try again later"}`, http.StatusTooManyRequests)
-					return
-				}
-
-				results, err = h.Manager.Search(r.Context(), indexerKey, searchParams)
-				if err == nil && len(results) > 0 {
-					if h.Cache != nil {
-						CacheSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category, results, h.CacheTTL)
-					}
-				}
 			}
 		}
-	} else {
-		// Force fresh search or cache disabled
-		slog.Info("Web search request (forced fresh or cache disabled)", "indexer", indexerKey, "query", searchParams.Query, "category", searchParams.Category)
-
-		if indexerKey == "all" {
-			results, err = h.searchAll(searchParams)
-		} else {
-			limiter := h.getRateLimiter(indexerKey)
-			if !limiter.Allow() {
-				http.Error(w, `{"error": "Rate limit exceeded, please try again later"}`, http.StatusTooManyRequests)
-				return
+		if results == nil { // Cache miss
+			slog.Info("Web search request (cache miss)", "indexer", indexerKey, "query", searchParams.Query, "category", searchParams.Category)
+			liveResults, searchErr := h.Manager.Search(r.Context(), indexerKey, searchParams)
+			err = searchErr
+			if err == nil && len(liveResults) > 0 && h.Cache != nil {
+				CacheSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category, liveResults, h.CacheTTL)
 			}
-			results, err = h.Manager.Search(r.Context(), indexerKey, searchParams)
-			if err == nil && len(results) > 0 {
-				if h.Cache != nil {
-					CacheSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category, results, h.CacheTTL)
-				}
-			}
+			results = liveResults
 		}
 	}
 
