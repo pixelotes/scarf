@@ -1,5 +1,3 @@
-// config/config.go - Enhanced version with documentation and validation
-
 package config
 
 import (
@@ -31,6 +29,7 @@ type ConfigOptions struct {
 	DefaultAPILimit    int
 	CronjobsEnabled    bool
 	MaxFailures        int
+	CacheEnabled       bool
 }
 
 // GetConfig loads and validates all configuration from environment variables
@@ -53,6 +52,7 @@ func GetConfig() (*ConfigOptions, error) {
 		DefaultAPILimit:    GetEnvAsInt("DEFAULT_API_LIMIT", 100),
 		CronjobsEnabled:    GetEnvAsBool("ENABLE_CRONJOBS", true),
 		MaxFailures:        GetEnvAsInt("MAX_FAILURES", 5),
+		CacheEnabled:       GetEnvAsBool("CACHE_ENABLED", true),
 	}
 
 	// Validate configuration
@@ -109,6 +109,7 @@ func (c *ConfigOptions) PrintConfig() {
 	fmt.Println("=== Current Configuration ===")
 	fmt.Printf("App Port: %s\n", c.AppPort)
 	fmt.Printf("Definitions Path: %s\n", c.DefinitionsPath)
+	fmt.Printf("Cache Enabled: %t\n", c.CacheEnabled)
 	fmt.Printf("Cache TTL: %s\n", c.CacheTTL)
 	fmt.Printf("Database Path: %s\n", c.DBPath)
 	fmt.Printf("Web UI Enabled: %t\n", c.WebUIEnabled)
@@ -138,6 +139,7 @@ Server Configuration:
 Storage & Caching:
   DEFINITIONS_PATH=./definitions   Path to indexer definition files
   DB_PATH=./data/cache.db         SQLite database file path
+  CACHE_ENABLED=true              Enable or disable caching (true/false)
   CACHE_TTL=15m                   Cache time-to-live (e.g., 10m, 1h)
   MAX_CACHE_SIZE_MB=500           Maximum cache size in megabytes
 

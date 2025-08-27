@@ -62,6 +62,7 @@ Scarf is configured using environment variables. Here are the most important one
 | ------------------- | --------------------------------------------------------------------------- | ---------------------------- |
 | `APP_PORT`          | The port the application will listen on.                                    | `8080`                       |
 | `DEFINITIONS_PATH`  | Path to the indexer definition files.                                       | `./definitions`              |
+| `CACHE_ENABLED`         | Enable or disable cache.                                           | `true`                        |
 | `CACHE_TTL`         | How long to cache search results.                                           | `15m`                        |
 | `LATEST_CACHE_TTL`  | How long to cache the latest releases.                                      | `24h`                        |
 | `DB_PATH`           | Path to the SQLite database file for the cache.                             | `./data/indexer-cache.db`    |
@@ -73,7 +74,7 @@ Scarf is configured using environment variables. Here are the most important one
 | `FLARESOLVERR_URL`  | The url pointing to the FlareSolverr service                                |                              |
 | `DEFAULT_API_LIMIT` | Default number of results for API clients that don't support pagination.    | `100`                        |
 | `ENABLE_CRONJOBS`   | Enables or disables the job that caches the latest tracker releases         | `true`                       |
-| `MAX_RETRIES`   | Number of failures in 24h before disabling an indexer         | `5`                       |
+| `MAX_FAILURES`   | Failure threshold for disabling an indexer. Set to 0 to disable this feature.    | `5`                       |
 
 ---
 
@@ -187,7 +188,7 @@ For more complex sites, you can use the details_url and download_selector fields
 - [X] Store the results in a cache
 - [X] Automatically disable failing indexers
 - [X] Add an statistics tab to the UI
-- [ ] Make it possible to completely disable the cache
+- [X] Make it possible to completely disable the cache
 - [ ] Add recent searches to the UI (maybe in the search textbox)
 - [ ] Add webhook notifications for health checks (reuse the code from subtitlarr/go)
 - [ ] Dynamic search modes list for "/all" endpoint (currently only shows basic search)

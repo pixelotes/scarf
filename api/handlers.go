@@ -38,7 +38,7 @@ type APIHandler struct {
 
 // Represents the stats object
 type AppStats struct {
-	Cache   cache.CacheStats `json:"cache"`
+	Cache   *cache.CacheStats `json:"cache"`
 	Runtime struct {
 		Alloc      uint64 `json:"alloc_mb"`
 		TotalAlloc uint64 `json:"total_alloc_mb"`
@@ -60,16 +60,16 @@ type SearchResponse struct {
 
 // New handler to provide application-wide stats
 func (h *APIHandler) AppStatsHandler(w http.ResponseWriter, r *http.Request) {
-	// Get existing cache stats
-	cacheStats := h.Cache.GetStats()
+	stats := AppStats{}
+	if h.Cache != nil {
+		cacheStats := h.Cache.GetStats()
+		stats.Cache = &cacheStats
+	}
 
 	// Get memory stats from Go runtime
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
-	stats := AppStats{
-		Cache: cacheStats,
-	}
 	stats.Runtime.Alloc = m.Alloc / 1024 / 1024
 	stats.Runtime.TotalAlloc = m.TotalAlloc / 1024 / 1024
 	stats.Runtime.Sys = m.Sys / 1024 / 1024
@@ -159,8 +159,20 @@ func (h *APIHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Get cache statistics
-	cacheStats := h.Cache.GetStats()
+	var cacheStatus map[string]interface{}
+	if h.Cache != nil {
+		cacheStats := h.Cache.GetStats()
+		cacheStatus = map[string]interface{}{
+			"enabled":   true,
+			"entries":   cacheStats.EntryCount,
+			"size_mb":   cacheStats.Size / (1024 * 1024),
+			"hit_ratio": cacheStats.HitRatio,
+			"hits":      cacheStats.Hits,
+			"misses":    cacheStats.Misses,
+		}
+	} else {
+		cacheStatus = map[string]interface{}{"enabled": false}
+	}
 
 	healthStatus := map[string]interface{}{
 		"status":           determineHealthStatus(healthyIndexers, totalIndexers),
@@ -168,15 +180,8 @@ func (h *APIHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 		"total_indexers":   totalIndexers,
 		"healthy_indexers": healthyIndexers,
 		"tested_indexers":  testLimit,
-		"cache": map[string]interface{}{
-			"enabled":   h.Cache != nil,
-			"entries":   cacheStats.EntryCount,
-			"size_mb":   cacheStats.Size / (1024 * 1024),
-			"hit_ratio": cacheStats.HitRatio,
-			"hits":      cacheStats.Hits,
-			"misses":    cacheStats.Misses,
-		},
-		"timestamp": time.Now().UTC(),
+		"cache":            cacheStatus,
+		"timestamp":        time.Now().UTC(),
 	}
 
 	// Include detailed indexer status only if requested
@@ -322,64 +327,62 @@ func (h *APIHandler) searchAll(params indexer.SearchParams) ([]indexer.SearchRes
 	var wg sync.WaitGroup
 
 	// Track which indexers need live queries vs cache hits
-	liveQueryKeys := []string{}
-	totalResults := make(map[string][]indexer.SearchResult)
+	resultsChan := make(chan []indexer.SearchResult, len(allIndexers))
 
-	// Check cache for each enabled indexer
 	for key, def := range allIndexers {
 		if !def.Enabled {
 			continue
 		}
 
-		// Use unified cache structure
-		if cachedResults, found := GetCachedSearchResults(h.Cache, key, params.Query, params.Category); found {
-			slog.Info("Aggregate search served from cache for indexer", "indexer", def.Name, "query", params.Query)
-			if len(cachedResults) > 0 {
-				totalResults[key] = cachedResults
-			}
-		} else {
-			liveQueryKeys = append(liveQueryKeys, key)
-		}
-	}
-
-	// Process live queries for cache misses
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	for _, indexerKey := range liveQueryKeys {
 		wg.Add(1)
-		go func(key string) {
+		go func(k string, p indexer.SearchParams) {
 			defer wg.Done()
-			limiter := h.getRateLimiter(key)
+
+			if h.Cache != nil {
+				if cachedResults, found := GetCachedSearchResults(h.Cache, k, p.Query, p.Category); found {
+					slog.Info("Aggregate search served from cache for indexer", "indexer", k, "query", p.Query)
+					if len(cachedResults) > 0 {
+						resultsChan <- cachedResults
+					}
+					return
+				}
+			}
+
+			limiter := h.getRateLimiter(k)
 			if !limiter.Allow() {
-				slog.Warn("Rate limit exceeded during searchAll", "indexer", key)
+				slog.Warn("Rate limit exceeded during searchAll", "indexer", k)
 				return
 			}
 
-			slog.Info("Aggregate search (cache miss)", "indexer", key, "query", params.Query)
-			results, err := h.Manager.Search(ctx, key, params)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			slog.Info("Aggregate search (cache miss)", "indexer", k, "query", p.Query)
+			results, err := h.Manager.Search(ctx, k, p)
 			if err != nil {
 				if err == context.DeadlineExceeded {
-					slog.Warn("Search timed out for indexer", "indexer", key)
+					slog.Warn("Search timed out for indexer", "indexer", k)
 				} else {
-					slog.Warn("Search failed for indexer during searchAll", "indexer", key, "query", params.Query, "error", err)
+					slog.Warn("Search failed for indexer during searchAll", "indexer", k, "query", p.Query, "error", err)
 				}
 				return
 			}
 
 			if len(results) > 0 {
-				// Cache the results using unified cache structure
-				CacheSearchResults(h.Cache, key, params.Query, params.Category, results, h.CacheTTL)
-				totalResults[key] = results
+				if h.Cache != nil {
+					CacheSearchResults(h.Cache, k, p.Query, p.Category, results, h.CacheTTL)
+				}
+				resultsChan <- results
 			}
-		}(indexerKey)
+		}(key, params)
 	}
 
 	wg.Wait()
+	close(resultsChan)
 
 	// Combine all results and deduplicate
-	allResults := []indexer.SearchResult{}
-	for _, results := range totalResults {
+	var allResults []indexer.SearchResult
+	for results := range resultsChan {
 		allResults = append(allResults, results...)
 	}
 
@@ -474,7 +477,7 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 	var cacheHit bool
 
 	// Check unified cache first (unless forcing fresh)
-	if !forceFresh {
+	if !forceFresh && h.Cache != nil {
 		if indexerKey == "all" {
 			results, err = h.searchAll(searchParams)
 			// searchAll handles its own caching, so we consider this a cache operation
@@ -486,7 +489,7 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 				results = cachedResults
 				cacheHit = true
 			} else {
-				// Cache miss - perform live search
+				// Cache miss - perform live search and then cache
 				slog.Info("Web search request (cache miss)", "indexer", indexerKey, "query", searchParams.Query, "category", searchParams.Category)
 
 				limiter := h.getRateLimiter(indexerKey)
@@ -497,14 +500,15 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 
 				results, err = h.Manager.Search(r.Context(), indexerKey, searchParams)
 				if err == nil && len(results) > 0 {
-					// Cache the results using unified structure
-					CacheSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category, results, h.CacheTTL)
+					if h.Cache != nil {
+						CacheSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category, results, h.CacheTTL)
+					}
 				}
 			}
 		}
 	} else {
-		// Force fresh search
-		slog.Info("Web search request (forced fresh)", "indexer", indexerKey, "query", searchParams.Query, "category", searchParams.Category)
+		// Force fresh search or cache disabled
+		slog.Info("Web search request (forced fresh or cache disabled)", "indexer", indexerKey, "query", searchParams.Query, "category", searchParams.Category)
 
 		if indexerKey == "all" {
 			results, err = h.searchAll(searchParams)
@@ -516,7 +520,9 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 			}
 			results, err = h.Manager.Search(r.Context(), indexerKey, searchParams)
 			if err == nil && len(results) > 0 {
-				CacheSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category, results, h.CacheTTL)
+				if h.Cache != nil {
+					CacheSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category, results, h.CacheTTL)
+				}
 			}
 		}
 	}
@@ -587,6 +593,10 @@ func (h *APIHandler) GetFlexgetAPIKey(w http.ResponseWriter, r *http.Request) {
 
 // CacheStatsHandler provides cache statistics
 func (h *APIHandler) CacheStatsHandler(w http.ResponseWriter, r *http.Request) {
+	if h.Cache == nil {
+		http.Error(w, `{"error": "cache is disabled"}`, http.StatusServiceUnavailable)
+		return
+	}
 	stats := h.Cache.GetStats()
 	popular := h.Cache.GetPopularKeys(10)
 
@@ -602,6 +612,11 @@ func (h *APIHandler) CacheStatsHandler(w http.ResponseWriter, r *http.Request) {
 
 // CacheManagementHandler provides cache management operations
 func (h *APIHandler) CacheManagementHandler(w http.ResponseWriter, r *http.Request) {
+	if h.Cache == nil {
+		http.Error(w, "Method not allowed when cache is disabled", http.StatusMethodNotAllowed)
+		return
+	}
+
 	switch r.Method {
 	case "DELETE":
 		key := r.URL.Query().Get("key")
@@ -622,7 +637,6 @@ func (h *APIHandler) CacheManagementHandler(w http.ResponseWriter, r *http.Reque
 
 // MetricsHandler provides Prometheus-style metrics
 func (h *APIHandler) MetricsHandler(w http.ResponseWriter, r *http.Request) {
-	stats := h.Cache.GetStats()
 	allIndexers := h.Manager.GetAllIndexers()
 
 	enabledCount := 0
@@ -641,25 +655,28 @@ func (h *APIHandler) MetricsHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "# TYPE scarf_indexers_enabled gauge\n")
 	fmt.Fprintf(w, "scarf_indexers_enabled %d\n", enabledCount)
 
-	fmt.Fprintf(w, "# HELP scarf_cache_hits_total Total cache hits\n")
-	fmt.Fprintf(w, "# TYPE scarf_cache_hits_total counter\n")
-	fmt.Fprintf(w, "scarf_cache_hits_total %d\n", stats.Hits)
+	if h.Cache != nil {
+		stats := h.Cache.GetStats()
+		fmt.Fprintf(w, "# HELP scarf_cache_hits_total Total cache hits\n")
+		fmt.Fprintf(w, "# TYPE scarf_cache_hits_total counter\n")
+		fmt.Fprintf(w, "scarf_cache_hits_total %d\n", stats.Hits)
 
-	fmt.Fprintf(w, "# HELP scarf_cache_misses_total Total cache misses\n")
-	fmt.Fprintf(w, "# TYPE scarf_cache_misses_total counter\n")
-	fmt.Fprintf(w, "scarf_cache_misses_total %d\n", stats.Misses)
+		fmt.Fprintf(w, "# HELP scarf_cache_misses_total Total cache misses\n")
+		fmt.Fprintf(w, "# TYPE scarf_cache_misses_total counter\n")
+		fmt.Fprintf(w, "scarf_cache_misses_total %d\n", stats.Misses)
 
-	fmt.Fprintf(w, "# HELP scarf_cache_hit_ratio Cache hit ratio\n")
-	fmt.Fprintf(w, "# TYPE scarf_cache_hit_ratio gauge\n")
-	fmt.Fprintf(w, "scarf_cache_hit_ratio %.4f\n", stats.HitRatio)
+		fmt.Fprintf(w, "# HELP scarf_cache_hit_ratio Cache hit ratio\n")
+		fmt.Fprintf(w, "# TYPE scarf_cache_hit_ratio gauge\n")
+		fmt.Fprintf(w, "scarf_cache_hit_ratio %.4f\n", stats.HitRatio)
 
-	fmt.Fprintf(w, "# HELP scarf_cache_entries Current cache entries\n")
-	fmt.Fprintf(w, "# TYPE scarf_cache_entries gauge\n")
-	fmt.Fprintf(w, "scarf_cache_entries %d\n", stats.EntryCount)
+		fmt.Fprintf(w, "# HELP scarf_cache_entries Current cache entries\n")
+		fmt.Fprintf(w, "# TYPE scarf_cache_entries gauge\n")
+		fmt.Fprintf(w, "scarf_cache_entries %d\n", stats.EntryCount)
 
-	fmt.Fprintf(w, "# HELP scarf_cache_size_bytes Cache size in bytes\n")
-	fmt.Fprintf(w, "# TYPE scarf_cache_size_bytes gauge\n")
-	fmt.Fprintf(w, "scarf_cache_size_bytes %d\n", stats.Size)
+		fmt.Fprintf(w, "# HELP scarf_cache_size_bytes Cache size in bytes\n")
+		fmt.Fprintf(w, "# TYPE scarf_cache_size_bytes gauge\n")
+		fmt.Fprintf(w, "scarf_cache_size_bytes %d\n", stats.Size)
+	}
 
 	fmt.Fprintf(w, "# HELP scarf_uptime_seconds Application uptime in seconds\n")
 	fmt.Fprintf(w, "# TYPE scarf_uptime_seconds gauge\n")
@@ -834,20 +851,24 @@ func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexe
 			return
 		}
 
-		// Check if we have cached RSS XML first
-		if cachedXML, found := GetCachedRSSFeed(h.Cache, indexerKey, searchParams.Query, searchParams.Category); found {
-			slog.Info("Torznab request served from RSS cache", "indexer", indexerKey, "query", searchParams.Query)
-			w.Header().Set("Content-Type", "application/xml; charset=utf-8")
-			w.Header().Set("X-Cache", "HIT")
-			w.Write(cachedXML)
-			return
+		if h.Cache != nil {
+			// Check if we have cached RSS XML first
+			if cachedXML, found := GetCachedRSSFeed(h.Cache, indexerKey, searchParams.Query, searchParams.Category); found {
+				slog.Info("Torznab request served from RSS cache", "indexer", indexerKey, "query", searchParams.Query)
+				w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+				w.Header().Set("X-Cache", "HIT")
+				w.Write(cachedXML)
+				return
+			}
+
+			// Check unified cache for search results
+			if cachedResults, found := GetCachedSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category); found {
+				slog.Info("Torznab request served from unified cache", "indexer", indexerKey, "query", searchParams.Query)
+				results = cachedResults
+			}
 		}
 
-		// Check unified cache for search results
-		if cachedResults, found := GetCachedSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category); found {
-			slog.Info("Torznab request served from unified cache", "indexer", indexerKey, "query", searchParams.Query)
-			results = cachedResults
-		} else {
+		if results == nil {
 			slog.Info("Torznab request (cache miss)", "indexer", indexerKey, "query", searchParams.Query, "category", searchParams.Category)
 			results, err = h.Manager.Search(r.Context(), indexerKey, searchParams)
 			if err != nil {
@@ -857,7 +878,9 @@ func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexe
 			}
 			// Cache the results
 			if len(results) > 0 {
-				CacheSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category, results, h.CacheTTL)
+				if h.Cache != nil {
+					CacheSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category, results, h.CacheTTL)
+				}
 			}
 		}
 	}
@@ -944,49 +967,55 @@ func (h *APIHandler) TorznabLatest(w http.ResponseWriter, r *http.Request) {
 
 	// Create an empty feed structure to return in case of cache miss
 	feed := NewRSSFeed(def)
-	cacheKey := GenerateLatestCacheKey(indexerKey)
 
-	if cachedData, found := h.Cache.Get(cacheKey); found {
-		var cachedResult CachedSearchResult
-		if err := json.Unmarshal(cachedData, &cachedResult); err == nil {
-			// --- START Log Enhancement ---
-			slog.Info("Torznab latest request",
-				"indexer", indexerKey,
-				"cache_status", "HIT",
-				"cache_updated_at", cachedResult.CachedAt.Format(time.RFC3339),
-			)
-			// --- END Log Enhancement ---
+	if h.Cache != nil {
+		cacheKey := GenerateLatestCacheKey(indexerKey)
 
-			// Populate the feed with cached results
-			for _, result := range cachedResult.Results {
-				item := Item{
-					Title:       result.Title,
-					Link:        result.DownloadURL,
-					PublishDate: result.PublishDate.Format(time.RFC1123Z),
-					Size:        result.Size,
-					Enclosure: Enclosure{
-						URL:    result.DownloadURL,
-						Length: result.Size,
-						Type:   "application/x-bittorrent",
-					},
-					Attrs: []TorznabAttr{
-						{Name: "seeders", Value: strconv.Itoa(result.Seeders)},
-						{Name: "leechers", Value: strconv.Itoa(result.Leechers)},
-						{Name: "size", Value: strconv.FormatInt(result.Size, 10)},
-					},
+		if cachedData, found := h.Cache.Get(cacheKey); found {
+			var cachedResult CachedSearchResult
+			if err := json.Unmarshal(cachedData, &cachedResult); err == nil {
+				// --- START Log Enhancement ---
+				slog.Info("Torznab latest request",
+					"indexer", indexerKey,
+					"cache_status", "HIT",
+					"cache_updated_at", cachedResult.CachedAt.Format(time.RFC3339),
+				)
+				// --- END Log Enhancement ---
+
+				// Populate the feed with cached results
+				for _, result := range cachedResult.Results {
+					item := Item{
+						Title:       result.Title,
+						Link:        result.DownloadURL,
+						PublishDate: result.PublishDate.Format(time.RFC1123Z),
+						Size:        result.Size,
+						Enclosure: Enclosure{
+							URL:    result.DownloadURL,
+							Length: result.Size,
+							Type:   "application/x-bittorrent",
+						},
+						Attrs: []TorznabAttr{
+							{Name: "seeders", Value: strconv.Itoa(result.Seeders)},
+							{Name: "leechers", Value: strconv.Itoa(result.Leechers)},
+							{Name: "size", Value: strconv.FormatInt(result.Size, 10)},
+						},
+					}
+					feed.Channel.Items = append(feed.Channel.Items, item)
 				}
-				feed.Channel.Items = append(feed.Channel.Items, item)
+				w.Header().Set("X-Cache", "HIT")
+			} else {
+				slog.Warn("Torznab latest request: Failed to parse cached data", "indexer", indexerKey) // More specific log
+				w.Header().Set("X-Cache", "MISS")
 			}
-			w.Header().Set("X-Cache", "HIT")
 		} else {
-			slog.Warn("Torznab latest request: Failed to parse cached data", "indexer", indexerKey) // More specific log
+			// --- Log Enhancement ---
+			slog.Info("Torznab latest request", "indexer", indexerKey, "cache_status", "MISS")
+			// --- END Log Enhancement ---
 			w.Header().Set("X-Cache", "MISS")
 		}
 	} else {
-		// --- Log Enhancement ---
-		slog.Info("Torznab latest request", "indexer", indexerKey, "cache_status", "MISS")
-		// --- END Log Enhancement ---
-		w.Header().Set("X-Cache", "MISS")
+		slog.Info("Torznab latest request", "indexer", indexerKey, "cache_status", "DISABLED")
+		w.Header().Set("X-Cache", "SKIP")
 	}
 
 	output, err := xml.MarshalIndent(feed, "", "  ")

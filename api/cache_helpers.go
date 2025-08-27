@@ -1,5 +1,3 @@
-// api/cache_helpers.go - Unified cache structure
-
 package api
 
 import (
