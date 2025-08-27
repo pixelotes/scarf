@@ -186,12 +186,15 @@ For more complex sites, you can use the details_url and download_selector fields
 - [X] Add specific search modes (tv, movie, etc.)
 - [X] Store the results in a cache
 - [X] Automatically disable failing indexers
+- [X] Add an statistics tab to the UI
+- [ ] Make it possible to completely disable the cache
+- [ ] Add recent searches to the UI (maybe in the search textbox)
+- [ ] Add webhook notifications for health checks (reuse the code from subtitlarr/go)
 - [ ] Dynamic search modes list for "/all" endpoint (currently only shows basic search)
 - [ ] Implement custom rate limiting for trackers
 - [ ] Implement custom timeouts for trackers
 - [ ] Add custom server-side filtering (i.e. "&min_seeders=5" or "&min_size=1GB")
 - [ ] Add custom server-side sorting (i.e. "&sort=size&order=desc")
   - [ ] Make sorting per seeders/desc the default
-- [ ] Add an statistics tab to the UI
-- [ ] Add recent searches to the UI (maybe in the search textbox)
-- [ ] Add webhook notifications for health checks (reuse the code from subtitlarr/go)
+
+
