@@ -1,30 +1,32 @@
 version: "3.8"
 
 services:
-  go-indexer:
+  scarf:
     # This tells Docker Compose to build the image from the Dockerfile in the current directory.
     build: .
-    container_name: go-indexer
+    container_name: scarf
     restart: unless-stopped
-    
+
     ports:
       # Maps port 8080 on your host machine to port 8080 inside the container.
       - "8080:8080"
-      
+
     volumes:
       # Mounts a local directory for your tracker definitions into the container.
       # This allows you to add/edit definitions without rebuilding the image.
       - ./definitions:/app/definitions
-      
+
       # Mounts a local directory to persist the SQLite database file.
       - ./data:/app/data
-      
+
     environment:
       # --- General Settings ---
       - TZ=Europe/Madrid # Set your timezone
       - WEB_UI=true # Enable the web interface
       - DB_PATH=/app/data/indexer-cache.db # Path for the database inside the container
-      
+      - GOGC=50 # Tune the garbage collector to reduce peak memory usage.
+      - MAX_CONCURRENT_SEARCHES=4 # Limit the number of simultaneous search
+
       # --- Security Settings (CHANGE THESE!) ---
       - UI_PASSWORD=your_secret_password_here # Set a strong password for the UI
       - FLEXGET_API_KEY=your_secret_apikey_here # Set a strong, random API key for Torznab clients

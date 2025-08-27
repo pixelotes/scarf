@@ -55,7 +55,7 @@ type Manager struct {
 
 // newHttpClient creates a new HTTP client with our logging transport and custom TLS settings.
 func newHttpClient(jar http.CookieJar) *http.Client {
-	skipVerify := config.GetEnvAsBool("INSECURE_SKIP_VERIFY", false)
+	skipVerify := config.GetEnvAsBool("SKIP_TLS_VERIFY", false)
 	if skipVerify {
 		slog.Warn("TLS certificate verification is disabled. Use with caution.")
 	}

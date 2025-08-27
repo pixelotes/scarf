@@ -12,47 +12,43 @@ import (
 
 // ConfigOptions holds all application configuration
 type ConfigOptions struct {
-	AppPort            string
-	DefinitionsPath    string
-	CacheTTL           time.Duration
-	LatestCacheTTL     time.Duration
-	DBPath             string
-	WebUIEnabled       bool
-	DebugMode          bool
-	UIPassword         string
-	FlexgetAPIKey      string
-	JWTSecret          string
-	FlareSolverrURL    string
-	InsecureSkipVerify bool
-	MaxCacheSize       int64
-	RequestTimeout     time.Duration
-	DefaultAPILimit    int
-	CronjobsEnabled    bool
-	MaxFailures        int
-	CacheEnabled       bool
+	AppPort               string
+	DefinitionsPath       string
+	CacheTTL              time.Duration
+	LatestCacheTTL        time.Duration
+	DBPath                string
+	WebUIEnabled          bool
+	DebugMode             bool
+	UIPassword            string
+	FlexgetAPIKey         string
+	JWTSecret             string
+	FlareSolverrURL       string
+	SkipTLSVerify         bool
+	MaxCacheSize          int64
+	RequestTimeout        time.Duration
+	DefaultAPILimit       int
+	CronjobsEnabled       bool
+	MaxFailures           int
+	CacheEnabled          bool
+	MaxConcurrentSearches int
 }
 
 // GetConfig loads and validates all configuration from environment variables
 func GetConfig() (*ConfigOptions, error) {
 	config := &ConfigOptions{
-		AppPort:            GetEnv("APP_PORT", "8080"),
-		DefinitionsPath:    GetEnv("DEFINITIONS_PATH", "./definitions"),
-		CacheTTL:           GetEnvAsDuration("CACHE_TTL", 15*time.Minute),
-		LatestCacheTTL:     GetEnvAsDuration("LATEST_CACHE_TTL", 24*time.Hour),
-		DBPath:             GetEnv("DB_PATH", "./data/indexer-cache.db"),
-		WebUIEnabled:       GetEnvAsBool("WEB_UI", true),
-		DebugMode:          GetEnvAsBool("DEBUG", false),
-		UIPassword:         GetEnv("UI_PASSWORD", "password"),
-		FlexgetAPIKey:      GetEnv("FLEXGET_API_KEY", GenerateRandomString(16)),
-		JWTSecret:          GetEnv("JWT_SECRET", GenerateRandomString(32)),
-		FlareSolverrURL:    GetEnv("FLARESOLVERR_URL", ""),
-		InsecureSkipVerify: GetEnvAsBool("INSECURE_SKIP_VERIFY", false),
-		MaxCacheSize:       GetEnvAsInt64("MAX_CACHE_SIZE_MB", 500) * 1024 * 1024, // Convert MB to bytes
-		RequestTimeout:     GetEnvAsDuration("REQUEST_TIMEOUT", 20*time.Second),
-		DefaultAPILimit:    GetEnvAsInt("DEFAULT_API_LIMIT", 100),
-		CronjobsEnabled:    GetEnvAsBool("ENABLE_CRONJOBS", true),
-		MaxFailures:        GetEnvAsInt("MAX_FAILURES", 5),
-		CacheEnabled:       GetEnvAsBool("CACHE_ENABLED", true),
+		AppPort:               GetEnv("APP_PORT", "8080"),
+		DefinitionsPath:       GetEnv("DEFINITIONS_PATH", "./definitions"),
+		CacheTTL:              GetEnvAsDuration("CACHE_TTL", 15*time.Minute),
+		LatestCacheTTL:        GetEnvAsDuration("LATEST_CACHE_TTL", 24*time.Hour),
+		DBPath:                GetEnv("DB_PATH", "./data/indexer-cache.db"),
+		WebUIEnabled:          GetEnvAsBool("WEB_UI", true),
+		DebugMode:             GetEnvAsBool("DEBUG", false),
+		UIPassword:            GetEnv("UI_PASSWORD", "password"),
+		FlexgetAPIKey:         GetEnv("FLEXGET_API_KEY", GenerateRandomString(16)),
+		JWTSecret:             GetEnv("JWT_SECRET", GenerateRandomString(32)),
+		FlareSolverrURL:       GetEnv("FLARESOLVERR_URL", ""),
+		SkipTLSVerify:         GetEnvAsBool("SKIP_TLS_VERIFY", false),
+		MaxConcurrentSearches: GetEnvAsInt("MAX_CONCURRENT_SEARCHES", 4),
 	}
 
 	// Validate configuration
@@ -101,6 +97,11 @@ func (c *ConfigOptions) Validate() error {
 		return fmt.Errorf("FLARESOLVERR_URL must start with http:// or https://")
 	}
 
+	// Validate concurrent searches
+	if c.MaxConcurrentSearches < 1 {
+		return fmt.Errorf("MAX_CONCURRENT_SEARCHES must be at least 1")
+	}
+
 	return nil
 }
 
@@ -112,15 +113,17 @@ func (c *ConfigOptions) PrintConfig() {
 	fmt.Printf("Cache Enabled: %t\n", c.CacheEnabled)
 	fmt.Printf("Cache TTL: %s\n", c.CacheTTL)
 	fmt.Printf("Database Path: %s\n", c.DBPath)
+	fmt.Printf("Default API Limit: %d\n", c.DefaultAPILimit)
 	fmt.Printf("Web UI Enabled: %t\n", c.WebUIEnabled)
 	fmt.Printf("Debug Mode: %t\n", c.DebugMode)
 	fmt.Printf("UI Password: %s\n", maskSensitive(c.UIPassword))
 	fmt.Printf("Flexget API Key: %s\n", maskSensitive(c.FlexgetAPIKey))
 	fmt.Printf("JWT Secret: %s\n", maskSensitive(c.JWTSecret))
 	fmt.Printf("FlareSolverr URL: %s\n", c.FlareSolverrURL)
-	fmt.Printf("Skip TLS Verify: %t\n", c.InsecureSkipVerify)
+	fmt.Printf("Skip TLS Verify: %t\n", c.SkipTLSVerify)
 	fmt.Printf("Max Cache Size: %d MB\n", c.MaxCacheSize/(1024*1024))
 	fmt.Printf("Request Timeout: %s\n", c.RequestTimeout)
+	fmt.Printf("Max Concurrent Searches: %d\n", c.MaxConcurrentSearches)
 	fmt.Println("================================")
 }
 
@@ -135,6 +138,8 @@ Server Configuration:
   DEBUG=false                      Enable debug logging (true/false)
   REQUEST_TIMEOUT=20s              HTTP request timeout (e.g., 30s, 2m)
   DEFAULT_API_LIMIT=100            Default number of results for API clients
+  MAX_CONCURRENT_SEARCHES=4        Maximum concurrent searches to limit resource usage
+  MAX_FAILURES=5                   Max consecutive failures before disabling an indexer
 
 Storage & Caching:
   DEFINITIONS_PATH=./definitions   Path to indexer definition files
@@ -147,7 +152,7 @@ Security:
   UI_PASSWORD=password            Web interface password (min 6 chars)
   JWT_SECRET=<auto-generated>     JWT signing secret (min 32 chars)
   FLEXGET_API_KEY=<auto-generated> API key for Torznab endpoints
-  INSECURE_SKIP_VERIFY=false      Skip TLS certificate verification
+  SKIP_TLS_VERIFY=false      Skip TLS certificate verification
 
 External Services:
   FLARESOLVERR_URL=               FlareSolverr proxy URL (optional)
