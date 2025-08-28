@@ -202,7 +202,7 @@ Here are some tips for running Scarf in memory-constrained devices:
 - [X] Add an statistics tab to the UI
 - [X] Make it possible to completely disable the cache
 - [X] Limit concurrent searches (configurable via env var)
-- [ ] Add recent searches to the UI (maybe in the search textbox)
+- [X] Add recent searches to the UI
 - [ ] Add webhook notifications for health checks (reuse the code from subtitlarr/go)
 - [ ] Dynamic search modes list for "/all" endpoint (currently only shows basic search)
 - [ ] Implement custom rate limiting for trackers

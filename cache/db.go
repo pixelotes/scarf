@@ -37,6 +37,26 @@ type Cache struct {
 	cleanupStop chan bool
 }
 
+// DBStats holds database file statistics
+type DBStats struct {
+	PageCount int64 `json:"page_count"`
+	PageSize  int64 `json:"page_size"`
+}
+
+// GetDBStats returns statistics about the database file
+func (c *Cache) GetDBStats() (DBStats, error) {
+	var stats DBStats
+	row := c.db.QueryRow("PRAGMA page_count;")
+	if err := row.Scan(&stats.PageCount); err != nil {
+		return stats, err
+	}
+	row = c.db.QueryRow("PRAGMA page_size;")
+	if err := row.Scan(&stats.PageSize); err != nil {
+		return stats, err
+	}
+	return stats, nil
+}
+
 // NewCache initializes the SQLite database and cache table with enhanced features
 func NewCache(dataSourceName string) (*Cache, error) {
 	return NewCacheWithConfig(dataSourceName, 500*1024*1024) // Default 500MB

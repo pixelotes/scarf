@@ -108,7 +108,7 @@
         /* Stats Page Styles */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
             gap: 1rem;
         }
         .stat-card {
@@ -116,30 +116,48 @@
             padding: 1rem;
             border-radius: 4px;
         }
+        .stat-card h3 { margin-top: 0; }
         .bar-chart {
             display: flex;
-            height: 20px;
+            height: 24px;
             width: 100%;
             background-color: var(--border-color);
             border-radius: 4px;
             overflow: hidden;
             margin-top: 1rem;
+            font-size: 0.8rem;
+            font-weight: bold;
         }
         .bar-hits {
             background-color: var(--success-color);
             transition: width 0.5s ease-in-out;
             color: #111;
             text-align: center;
-            font-size: 0.8rem;
-            line-height: 20px;
+            line-height: 24px;
+            white-space: nowrap;
+            padding: 0 5px;
         }
         .bar-misses {
             background-color: var(--error-color);
             transition: width 0.5s ease-in-out;
             color: #111;
             text-align: center;
-            font-size: 0.8rem;
-            line-height: 20px;
+            line-height: 24px;
+            white-space: nowrap;
+            padding: 0 5px;
+        }
+        #indexer-failures-list, #recent-searches-list {
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+            font-size: 0.9rem;
+        }
+        #indexer-failures-list li, #recent-searches-list li {
+            padding: 4px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+        #indexer-failures-list li:last-child, #recent-searches-list li:last-child {
+            border-bottom: none;
         }
     </style>
 </head>
@@ -205,7 +223,6 @@
                     <option value="all">All Types</option>
                     <option value="public">Public</option>
                     <option value="private">Private</option>
-                    <option value="semiprivate">Semi-Private</option>
                 </select>
             </div>
             <div id="status-grid" class="status-grid"></div>
@@ -220,37 +237,39 @@
             <h2>Application Statistics</h2>
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div id="cache-stats-enabled">
-                        <h3>Cache Performance</h3>
-                        <p><strong>Hit Ratio:</strong> <span id="stat-cache-hit-ratio">0</span>%</p>
-                        <p><strong>Hits:</strong> <span id="stat-cache-hits">0</span></p>
-                        <p><strong>Misses:</strong> <span id="stat-cache-misses">0</span></p>
-                        <div class="bar-chart">
-                            <div id="bar-hits" class="bar-hits"></div>
-                            <div id="bar-misses" class="bar-misses"></div>
-                        </div>
-                    </div>
-                    <div id="cache-stats-disabled" style="display: none;">
-                        <h3>Cache Performance</h3>
-                        <p><strong>Cache is disabled.</strong></p>
+                    <h3>Cache Performance</h3>
+                    <p><strong>Hit Ratio:</strong> <span id="stat-cache-hit-ratio">0</span>%</p>
+                    <div class="bar-chart">
+                        <div id="bar-hits" class="bar-hits"></div>
+                        <div id="bar-misses" class="bar-misses"></div>
                     </div>
                 </div>
                 <div class="stat-card">
-                    <div id="cache-details-enabled">
-                        <h3>Cache Details</h3>
-                        <p><strong>Entries:</strong> <span id="stat-cache-entries">0</span></p>
-                        <p><strong>Size:</strong> <span id="stat-cache-size">0</span> MB</p>
-                    </div>
-                    <div id="cache-details-disabled" style="display: none;">
-                        <h3>Cache Details</h3>
-                        <p><strong>Cache is disabled.</strong></p>
-                    </div>
+                    <h3>Cache Details</h3>
+                    <p><strong>Entries:</strong> <span id="stat-cache-entries">0</span></p>
+                    <p><strong>Size:</strong> <span id="stat-cache-size">0</span> MB</p>
+                </div>
+                <div class="stat-card">
+                    <h3>Database Stats</h3>
+                    <p><strong>Pages:</strong> <span id="stat-db-pages">0</span></p>
+                    <p><strong>Total Size:</strong> <span id="stat-db-size">0</span> MB</p>
                 </div>
                 <div class="stat-card">
                     <h3>Memory Usage</h3>
                     <p><strong>Allocated:</strong> <span id="stat-mem-alloc">0</span> MB</p>
                     <p><strong>System:</strong> <span id="stat-mem-sys">0</span> MB</p>
-                    <p><strong>GC Cycles:</strong> <span id="stat-mem-gc">0</span></p>
+                </div>
+                <div class="stat-card" id="indexer-hits-card">
+                    <h3>Cache Hits by Indexer</h3>
+                    <div id="indexer-hits-chart"></div>
+                </div>
+                <div class="stat-card" id="indexer-failures-card">
+                    <h3>Top Indexer Failures (last 24h)</h3>
+                    <ul id="indexer-failures-list"></ul>
+                </div>
+                <div class="stat-card" id="recent-searches-card">
+                    <h3>Last 10 Searches</h3>
+                    <ul id="recent-searches-list"></ul>
                 </div>
             </div>
         </div>
@@ -419,43 +438,103 @@
                     if (!response.ok) return;
                     const stats = await response.json();
 
+                    // Cache Performance & Details
                     const cacheEnabled = !!stats.cache;
-                    document.getElementById('cache-stats-enabled').style.display = cacheEnabled ? 'block' : 'none';
-                    document.getElementById('cache-stats-disabled').style.display = cacheEnabled ? 'none' : 'block';
-                    document.getElementById('cache-details-enabled').style.display = cacheEnabled ? 'block' : 'none';
-                    document.getElementById('cache-details-disabled').style.display = cacheEnabled ? 'none' : 'block';
-
                     if (cacheEnabled) {
-                        // Update Cache Performance Card
                         const hitRatio = (stats.cache.hit_ratio * 100).toFixed(2);
                         document.getElementById('stat-cache-hit-ratio').textContent = hitRatio;
-                        document.getElementById('stat-cache-hits').textContent = stats.cache.hits;
-                        document.getElementById('stat-cache-misses').textContent = stats.cache.misses;
-
-                        // Update Bar Chart
-                        const total = stats.cache.hits + stats.cache.misses;
-                        const hitsPercentage = total > 0 ? (stats.cache.hits / total) * 100 : 0;
-                        const barHits = document.getElementById('bar-hits');
-                        const barMisses = document.getElementById('bar-misses');
-                        barHits.style.width = `${hitsPercentage}%`;
-                        barMisses.style.width = `${100 - hitsPercentage}%`;
-                        barHits.textContent = hitsPercentage > 10 ? stats.cache.hits : '';
-                        barMisses.textContent = (100 - hitsPercentage) > 10 ? stats.cache.misses : '';
-
-                        // Update Cache Details Card
+                        const totalCacheOps = stats.cache.hits + stats.cache.misses;
+                        const hitsPercentage = totalCacheOps > 0 ? (stats.cache.hits / totalCacheOps) * 100 : 0;
+                        document.getElementById('bar-hits').style.width = `${hitsPercentage}%`;
+                        document.getElementById('bar-hits').textContent = `${stats.cache.hits} Hits`;
+                        document.getElementById('bar-misses').style.width = `${100 - hitsPercentage}%`;
+                        document.getElementById('bar-misses').textContent = `${stats.cache.misses} Misses`;
                         document.getElementById('stat-cache-entries').textContent = stats.cache.entry_count;
                         document.getElementById('stat-cache-size').textContent = (stats.cache.size_bytes / 1024 / 1024).toFixed(2);
                     }
 
-                    // Update Memory Usage Card
+                    // Database Stats
+                    if (stats.db) {
+                        document.getElementById('stat-db-pages').textContent = stats.db.page_count;
+                        document.getElementById('stat-db-size').textContent = (stats.db.page_count * stats.db.page_size / 1024 / 1024).toFixed(2);
+                    }
+
+                    // Memory Usage
                     document.getElementById('stat-mem-alloc').textContent = stats.runtime.alloc_mb;
                     document.getElementById('stat-mem-sys').textContent = stats.runtime.sys_mb;
-                    document.getElementById('stat-mem-gc').textContent = stats.runtime.num_gc;
+
+                    // Cache Hits by Indexer
+                    renderBarChart('indexer-hits-chart', stats.indexer_hits);
+
+                    // Top Indexer Failures
+                    const failuresList = document.getElementById('indexer-failures-list');
+                    failuresList.innerHTML = '';
+                    const topFailures = Object.entries(stats.top_failures).sort(([,a],[,b]) => b - a);
+                    if (topFailures.length > 0) {
+                        topFailures.forEach(([name, count]) => {
+                            const li = document.createElement('li');
+                            li.textContent = `${state.allIndexersData[name]?.name || name}: ${count} failures`;
+                            failuresList.appendChild(li);
+                        });
+                    } else {
+                        failuresList.innerHTML = '<li>No recent failures.</li>';
+                    }
+
+                    // Recent Searches
+                    const searchesList = document.getElementById('recent-searches-list');
+                    searchesList.innerHTML = '';
+                    if (stats.recent_searches && stats.recent_searches.length > 0) {
+                        stats.recent_searches.reverse().forEach(query => {
+                            const li = document.createElement('li');
+                            li.textContent = query;
+                            searchesList.appendChild(li);
+                        });
+                    } else {
+                        searchesList.innerHTML = '<li>No recent searches.</li>';
+                    }
 
                 } catch (error) {
                     console.error("Failed to load stats:", error);
                 }
             }
+            
+            function renderBarChart(containerId, data) {
+                const container = document.getElementById(containerId);
+                container.innerHTML = '';
+                const sortedData = Object.entries(data).sort(([,a],[,b]) => b - a);
+                const maxVal = Math.max(...Object.values(data), 1);
+
+                if (sortedData.length > 0) {
+                    sortedData.forEach(([key, value]) => {
+                        const barContainer = document.createElement('div');
+                        barContainer.style.display = 'flex';
+                        barContainer.style.alignItems = 'center';
+                        barContainer.style.marginBottom = '5px';
+                        
+                        const label = document.createElement('div');
+                        label.textContent = state.allIndexersData[key]?.name || key;
+                        label.style.width = '120px';
+                        label.style.flexShrink = '0';
+                        label.style.fontSize = '0.9em';
+                        
+                        const bar = document.createElement('div');
+                        bar.style.width = `${(value / maxVal) * 100}%`;
+                        bar.style.backgroundColor = 'var(--primary-color)';
+                        bar.style.color = '#fff';
+                        bar.style.padding = '2px 5px';
+                        bar.style.borderRadius = '3px';
+                        bar.style.fontSize = '0.9em';
+                        bar.textContent = value;
+                        
+                        barContainer.appendChild(label);
+                        barContainer.appendChild(bar);
+                        container.appendChild(barContainer);
+                    });
+                } else {
+                    container.innerHTML = '<p style="font-size: 0.9em;">No cache hits recorded yet.</p>';
+                }
+            }
+
 
             // --- UI RENDERING & EVENT HANDLERS ---
             function updateUIBeforeFetch() {
@@ -521,7 +600,7 @@
                 const filter = document.getElementById('type-filter').value;
                 statusGrid.innerHTML = '';
 
-                Object.entries(state.allIndexersData).forEach(([key, indexer]) => {
+                Object.entries(state.allIndexersData).sort(([,a],[,b]) => a.name.localeCompare(b.name)).forEach(([key, indexer]) => {
                     if (filter !== 'all' && indexer.type !== filter) return;
 
                     const card = document.createElement('div');

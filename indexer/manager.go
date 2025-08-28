@@ -722,6 +722,17 @@ func (m *Manager) Test(ctx context.Context, indexerKey string) error {
 	return nil
 }
 
+// GetFailureStats returns the number of recent failures for each indexer.
+func (m *Manager) GetFailureStats() map[string]int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	stats := make(map[string]int)
+	for key, timestamps := range m.failureTimestamps {
+		stats[key] = len(timestamps)
+	}
+	return stats
+}
+
 // Search queries a specific indexer using the appropriate search mode.
 func (m *Manager) Search(ctx context.Context, indexerKey string, params SearchParams) ([]SearchResult, error) {
 	def, ok := m.GetIndexer(indexerKey)
