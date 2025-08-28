@@ -6,8 +6,10 @@ import (
 	"encoding/xml"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,12 +37,20 @@ type APIHandler struct {
 	rlMutex               sync.RWMutex
 	DefaultAPILimit       int
 	MaxConcurrentSearches int
+	indexerHits           map[string]int64
+	recentSearches        []string
+	statsMutex            sync.Mutex
 }
 
 // Represents the stats object
+// Represents the stats object
 type AppStats struct {
-	Cache   *cache.CacheStats `json:"cache"`
-	Runtime struct {
+	Cache          *cache.CacheStats `json:"cache"`
+	DB             *cache.DBStats    `json:"db"`
+	IndexerHits    map[string]int64  `json:"indexer_hits"`
+	TopFailures    map[string]int    `json:"top_failures"`
+	RecentSearches []string          `json:"recent_searches"`
+	Runtime        struct {
 		Alloc      uint64 `json:"alloc_mb"`
 		TotalAlloc uint64 `json:"total_alloc_mb"`
 		Sys        uint64 `json:"sys_mb"`
@@ -59,12 +69,40 @@ type SearchResponse struct {
 	Indexer    string                 `json:"indexer"`
 }
 
+func (h *APIHandler) recordSearch(query string) {
+	if query == "" {
+		return
+	}
+	h.statsMutex.Lock()
+	defer h.statsMutex.Unlock()
+	// Avoid adding duplicate consecutive searches
+	if len(h.recentSearches) > 0 && h.recentSearches[len(h.recentSearches)-1] == query {
+		return
+	}
+	h.recentSearches = append(h.recentSearches, query)
+	if len(h.recentSearches) > 10 {
+		h.recentSearches = h.recentSearches[1:]
+	}
+}
+
 // New handler to provide application-wide stats
 func (h *APIHandler) AppStatsHandler(w http.ResponseWriter, r *http.Request) {
-	stats := AppStats{}
+	h.statsMutex.Lock()
+	defer h.statsMutex.Unlock()
+
+	stats := AppStats{
+		IndexerHits:    maps.Clone(h.indexerHits), // Use a copy
+		TopFailures:    h.Manager.GetFailureStats(),
+		RecentSearches: slices.Clone(h.recentSearches), // Use a copy
+	}
+
 	if h.Cache != nil {
 		cacheStats := h.Cache.GetStats()
 		stats.Cache = &cacheStats
+		dbStats, err := h.Cache.GetDBStats()
+		if err == nil {
+			stats.DB = &dbStats
+		}
 	}
 
 	// Get memory stats from Go runtime
@@ -93,6 +131,8 @@ func NewAPIHandler(manager *indexer.Manager, cache *cache.Cache, cacheTTL, lates
 		rateLimiters:          make(map[string]*rate.Limiter),
 		DefaultAPILimit:       defaultLimit,
 		MaxConcurrentSearches: maxConcurrent,
+		indexerHits:           make(map[string]int64),
+		recentSearches:        make([]string, 0, 10),
 	}
 }
 
@@ -451,6 +491,9 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 
 	indexerKey := r.URL.Query().Get("indexer")
 
+	// Add this line to record the search
+	h.recordSearch(searchParams.Query)
+
 	// Parse pagination parameters
 	limitStr := r.URL.Query().Get("perPage")
 	if limitStr == "" {
@@ -487,6 +530,10 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 				slog.Info("Web search request served from cache", "indexer", indexerKey, "query", searchParams.Query)
 				results = cachedResults
 				cacheHit = true
+				// Add this to record the hit
+				h.statsMutex.Lock()
+				h.indexerHits[indexerKey]++
+				h.statsMutex.Unlock()
 			}
 		}
 		if results == nil { // Cache miss
