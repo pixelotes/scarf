@@ -3,7 +3,7 @@ name: Nyaa.si
 description: Nyaa is a Public torrent site focused on Eastern ASIAN media including
   anime, manga, literature and music
 type: public
-enabled: true
+enabled: "false"
 language: en-US
 schedule: '@hourly'
 settings:
@@ -93,7 +93,7 @@ search:
       title:
         selector: tr.success td:nth-child(2) > a
       download_url:
-        selector: td:nth-child(3) a[href^="magnet:"]
+        selector: 'td:nth-child(3) a[href^="magnet:?"]@href'
       size:
         selector: td:nth-child(4)
       seeders:

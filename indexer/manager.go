@@ -1188,6 +1188,8 @@ func (m *Manager) absURL(base, path string) string {
 
 func (m *Manager) parseSize(s string) int64 {
 	s = strings.ReplaceAll(s, "\u00A0", " ")
+	// Add GiB and MiB to the regex
+	sizeRegex := regexp.MustCompile(`(?i)(\d+(\.\d+)?)\s*(kb|mb|gb|tb|mib|gib)`)
 	matches := sizeRegex.FindStringSubmatch(s)
 	if len(matches) < 4 {
 		return 0
@@ -1198,9 +1200,9 @@ func (m *Manager) parseSize(s string) int64 {
 	switch unit {
 	case "kb":
 		multiplier = 1024
-	case "mb":
+	case "mb", "mib": // Group MiB with MB
 		multiplier = 1024 * 1024
-	case "gb":
+	case "gb", "gib": // Group GiB with GB
 		multiplier = 1024 * 1024 * 1024
 	case "tb":
 		multiplier = 1024 * 1024 * 1024 * 1024
@@ -1260,7 +1262,9 @@ func parseFuzzyDate(dateStr string) (time.Time, error) {
 	}
 
 	formats := []string{
-		time.RFC3339, "2006-01-02 15:04:05", time.RFC1123, "Jan 2, 2006", time.RFC822,
+		time.RFC3339, "2006-01-02 15:04:05", "2006-01-02 15:04",
+		time.RFC1123, "Jan 2, 2006",
+		time.RFC822,
 	}
 	for _, format := range formats {
 		t, err := time.Parse(format, dateStr)
