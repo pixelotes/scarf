@@ -13,7 +13,7 @@ settings:
 search:
   type: html
   urls:
-    - https://www.anirena.com/
+    - https://www.anirena.com/?s={{.Query}}
   params: {}
   results:
     rows_selector: table tbody tr:has(td.torrents_small_type_data1)
