@@ -6,20 +6,17 @@ enabled: "false"
 language: "en-US"
 schedule: "@hourly"
 settings:
-- name: use_flaresolverr
-  type: checkbox
-  label: Use FlareSolverr
-  default: 'false'
+  - name: use_flaresolverr
+    type: checkbox
+    label: Use FlareSolverr
+    default: 'false'
 search:
   type: "json"
-  
   urls:
     - "https://bangumi.moe/{{if .Query}}api/v2/torrent/search{{else}}api/torrent/latest{{end}}"
-  
   method: "{{if .Query}}post{{else}}get{{end}}"
   content_type: "application/json"
   body: '{"query": "{{.Query}}", "category_id": "{{.Category}}"}'
-
   results:
     path: "torrents"
     fields:
@@ -41,7 +38,6 @@ search:
     movie-search: [q]
     music-search: [q]
     book-search: [q]
-
 category_mappings:
   - indexer_cat: "549ef207fe682f7549f1ea90"
     torznab_cat: 5080 # Anime

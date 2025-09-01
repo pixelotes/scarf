@@ -2,26 +2,24 @@ key: "yts"
 name: "YTS"
 description: "YTS is a Public torrent site specialising in HD movies of small size"
 type: "public"
-enabled: true
+enabled: "false"
 language: "en-US"
 schedule: "@every 2h"
 settings:
-- name: use_flaresolverr
-  type: checkbox
-  label: Use FlareSolverr
-  default: 'false'
+  - name: use_flaresolverr
+    type: checkbox
+    label: Use FlareSolverr
+    default: 'false'
 search:
   type: "json"
   urls:
     - "https://yts.mx/api/v2/list_movies.json"
-  
   params:
     query_term: "{{.Query}}"
     limit: 50
     sort_by: "date_added"
     order_by: "desc"
     quality: "{{.Category}}"
-
   results:
     path: "data.movies"
     sub_path: "torrents"
@@ -41,7 +39,6 @@ search:
   modes:
     search: [q]
     movie-search: [q, imdbid]
-
 category_mappings:
   - indexer_cat: "720p"
     torznab_cat: 2040

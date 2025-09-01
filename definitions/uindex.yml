@@ -2,18 +2,18 @@ key: uindex
 name: Uindex
 description: Uindex is a Public Torrent Tracker for MOVIES / TV / MUSIC / GENERAL
 type: public
-enabled: true
+enabled: "false"
 language: en-US
 schedule: '@hourly'
 settings:
-- name: use_flaresolverr
-  type: checkbox
-  label: Use FlareSolverr
-  default: 'false'
+  - name: use_flaresolverr
+    type: checkbox
+    label: Use FlareSolverr
+    default: 'false'
 search:
   type: html
   urls:
-  - https://uindex.org/search.php?search={{.Query}}
+    - https://uindex.org/search.php?search={{.Query}}
   params: {}
   results:
     rows_selector: table.maintable > tbody > tr:has(a[href^="magnet:?xt="])
@@ -38,21 +38,21 @@ search:
     movie-search: [q]
     music-search: [q]
 category_mappings:
-- indexer_cat: '1'
-  torznab_cat: 2000
-- indexer_cat: '2'
-  torznab_cat: 5000
-- indexer_cat: '3'
-  torznab_cat: 1000
-- indexer_cat: '4'
-  torznab_cat: 3000
-- indexer_cat: '5'
-  torznab_cat: 4000
-- indexer_cat: '6'
-  torznab_cat: 6000
-- indexer_cat: '7'
-  torznab_cat: 5080
-- indexer_cat: '8'
-  torznab_cat: 8000
-- indexer_cat: '0'
-  torznab_cat: 8000
+  - indexer_cat: '1'
+    torznab_cat: 2000
+  - indexer_cat: '2'
+    torznab_cat: 5000
+  - indexer_cat: '3'
+    torznab_cat: 1000
+  - indexer_cat: '4'
+    torznab_cat: 3000
+  - indexer_cat: '5'
+    torznab_cat: 4000
+  - indexer_cat: '6'
+    torznab_cat: 6000
+  - indexer_cat: '7'
+    torznab_cat: 5080
+  - indexer_cat: '8'
+    torznab_cat: 8000
+  - indexer_cat: '0'
+    torznab_cat: 8000

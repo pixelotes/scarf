@@ -2,7 +2,7 @@ key: "thepiratebay"
 name: "The Pirate Bay"
 description: "The galaxy's most resilient Public BitTorrent site"
 type: "public"
-enabled: true
+enabled: "false"
 language: "en-US"
 schedule: "@every 1h"
 settings:

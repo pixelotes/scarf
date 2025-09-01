@@ -2,19 +2,18 @@ key: "therarbg"
 name: "TheRARBG"
 description: "A Public site inspired by RARBG.to for MOVIES / TV / GENERAL"
 type: "public"
-enabled: true
+enabled: "false"
 language: "en-US"
 schedule: "@every 1h"
 settings:
-- name: use_flaresolverr
-  type: checkbox
-  label: Use FlareSolverr
-  default: 'false'
+  - name: use_flaresolverr
+    type: checkbox
+    label: Use FlareSolverr
+    default: 'false'
 search:
   type: "json"
   urls:
     - "https://therarbg.to/get-posts/order:-a{{if .Category}}:category:{{.Category}}{{end}}{{if .Query}}:keywords:{{.Query}}{{else}}:time:10D{{end}}:paginate_by:100:format:json/"
-
   results:
     path: "results"
     fields:
@@ -36,7 +35,6 @@ search:
     movie-search: [q, imdbid]
     music-search: [q]
     book-search: [q]
-
 category_mappings:
   - indexer_cat: "Movies"
     torznab_cat: 2000

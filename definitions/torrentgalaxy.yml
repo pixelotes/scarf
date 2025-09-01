@@ -2,14 +2,14 @@ key: "torrentgalaxy"
 name: "TorrentGalaxy"
 description: "TorrentGalaxy is a Public site for MOVIES / TV / GENERAL"
 type: "public"
-enabled: true
+enabled: "false"
 language: "en-US"
 schedule: "@every 1h"
 settings:
-- name: use_flaresolverr
-  type: checkbox
-  label: Use FlareSolverr
-  default: 'false'
+  - name: use_flaresolverr
+    type: checkbox
+    label: Use FlareSolverr
+    default: 'false'
 search:
   type: "html"
   urls:
@@ -17,7 +17,6 @@ search:
     - "https://torrentgalaxy.info/get-posts/{{if .Query}}keywords:{{.Query}}{{end}}{{if .Category}}:category:{{.Category}}{{end}}"
     - "https://torrentgalaxy.space/get-posts/{{if .Query}}keywords:{{.Query}}{{end}}{{if .Category}}:category:{{.Category}}{{end}}"
   params: {}
-
   results:
     rows_selector: "div.tgxtablerow"
     download_selector: "a[href^='magnet:?xt=']@href"
