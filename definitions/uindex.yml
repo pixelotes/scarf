@@ -13,7 +13,7 @@ settings:
 search:
   type: html
   urls:
-  - https://uindex.org/search.php
+  - https://uindex.org/search.php?search={{.Query}}
   params: {}
   results:
     rows_selector: table.maintable > tbody > tr:has(a[href^="magnet:?xt="])
