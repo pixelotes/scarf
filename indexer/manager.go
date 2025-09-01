@@ -610,13 +610,17 @@ func updateNodeValueByKey(node *yaml.Node, key, value string) {
 	}
 	for i := 0; i < len(node.Content); i += 2 {
 		if node.Content[i].Value == key {
-			node.Content[i+1].SetString(value)
+			// Get the value node and update it
+			valueNode := node.Content[i+1]
+			valueNode.SetString(value)
+			// Force the encoder to use double quotes
+			valueNode.Style = yaml.DoubleQuotedStyle
 			return
 		}
 	}
-	// If key doesn't exist, add it
+	// If key doesn't exist, add it with the correct style
 	node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key})
-	node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value})
+	node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value, Style: yaml.DoubleQuotedStyle})
 }
 
 // authenticate handles the login process for a tracker.
