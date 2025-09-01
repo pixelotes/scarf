@@ -1,0 +1,174 @@
+key: nyaasi
+name: Nyaa.si
+description: Nyaa is a Public torrent site focused on Eastern ASIAN media including
+  anime, manga, literature and music
+type: public
+enabled: true
+language: en-US
+schedule: '@hourly'
+settings:
+- name: prefer_magnet_links
+  type: checkbox
+  label: Prefer Magnet Links
+  default: 'True'
+- name: sonarr_compatibility
+  type: checkbox
+  label: Improve Sonarr compatibility by trying to add Season information into Release
+    Titles
+  default: 'False'
+- name: strip_s01
+  type: checkbox
+  label: Remove first season keywords (S1/S01/Season 1), as some results do not include
+    this for first/single season releases
+  default: 'False'
+- name: radarr_compatibility
+  type: checkbox
+  label: Improve Radarr compatibility by removing year information from keywords and
+    adding it to Release Titles
+  default: 'False'
+- name: filter-id
+  type: select
+  label: Filter
+  default: '0'
+  options:
+    0: No filter
+    1: No remakes
+    2: Trusted only
+- name: cat-id
+  type: select
+  label: Category
+  default: '0'
+  options:
+    0: All categories
+    10: Anime
+    11: Anime - Anime Music Video
+    12: Anime - English-translated
+    13: Anime - Non-English-translated
+    14: Anime - Raw
+    20: Audio
+    21: Audio - Lossless
+    22: Audio - Lossy
+    30: Literature
+    31: Literature - English-translated
+    32: Literature - Non-English-translated
+    33: Literature - Lossy
+    40: Live Action
+    41: Live Action - English
+    42: Live Action - Idol/PV
+    43: Live Action - Non-English
+    44: Live Action - Raw
+    50: Pictures
+    51: Pictures  - Graphics
+    52: Pictures  - Photos
+    60: Software
+    61: Software - Applications
+    62: Software - Games
+- name: sort
+  type: select
+  label: Sort requested from site
+  default: id
+  options:
+    id: created
+    seeders: seeders
+    size: size
+- name: type
+  type: select
+  label: Order requested from site
+  default: desc
+  options:
+    desc: desc
+    asc: asc
+- name: use_flaresolverr
+  type: checkbox
+  label: Use FlareSolverr
+  default: 'false'
+search:
+  type: html
+  urls:
+  - https://nyaa.si/?f=0&c=0_0&q={{.Query}}&s=seeders&o=desc
+  params: {}
+  results:
+    rows_selector: div.table-responsive > table > tbody > tr.success
+    fields:
+      title:
+        selector: tr.success td:nth-child(2) > a
+      download_url:
+        selector: td:nth-child(3) a[href^="magnet:"]
+      size:
+        selector: td:nth-child(4)
+      seeders:
+        selector: td:nth-child(6):not(:empty)
+      leechers:
+        selector: td:nth-child(7):not(:empty)
+      publish_date:
+        selector: td:nth-child(5)
+  modes:
+    search:
+    - q
+    tv-search:
+    - q
+    - season
+    - ep
+    movie-search:
+    - q
+    music-search:
+    - q
+    book-search:
+    - q
+category_mappings:
+- indexer_cat: '10'
+  torznab_cat: 5080
+- indexer_cat: '11'
+  torznab_cat: 5080
+- indexer_cat: '12'
+  torznab_cat: 5080
+- indexer_cat: '13'
+  torznab_cat: 5080
+- indexer_cat: '14'
+  torznab_cat: 5080
+- indexer_cat: '10'
+  torznab_cat: 2020
+- indexer_cat: '11'
+  torznab_cat: 2020
+- indexer_cat: '12'
+  torznab_cat: 2020
+- indexer_cat: '13'
+  torznab_cat: 2020
+- indexer_cat: '14'
+  torznab_cat: 2020
+- indexer_cat: '20'
+  torznab_cat: 3000
+- indexer_cat: '21'
+  torznab_cat: 3000
+- indexer_cat: '22'
+  torznab_cat: 3000
+- indexer_cat: '30'
+  torznab_cat: 7000
+- indexer_cat: '31'
+  torznab_cat: 7000
+- indexer_cat: '32'
+  torznab_cat: 7000
+- indexer_cat: '33'
+  torznab_cat: 7000
+- indexer_cat: '40'
+  torznab_cat: 5000
+- indexer_cat: '41'
+  torznab_cat: 5000
+- indexer_cat: '42'
+  torznab_cat: 5000
+- indexer_cat: '43'
+  torznab_cat: 5000
+- indexer_cat: '44'
+  torznab_cat: 5000
+- indexer_cat: '50'
+  torznab_cat: 8000
+- indexer_cat: '51'
+  torznab_cat: 8000
+- indexer_cat: '52'
+  torznab_cat: 8000
+- indexer_cat: '60'
+  torznab_cat: 4000
+- indexer_cat: '61'
+  torznab_cat: 4020
+- indexer_cat: '62'
+  torznab_cat: 4050
