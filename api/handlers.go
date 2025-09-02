@@ -723,7 +723,7 @@ func (h *APIHandler) TorznabAPI(w http.ResponseWriter, r *http.Request) {
 	switch torznabType {
 	case "caps":
 		h.handleCaps(w, r, indexerKey)
-	case "search", "tv-search", "movie-search", "book-search", "music-search":
+	case "search", "tv-search", "tvsearch", "movie-search", "moviesearch", "book-search", "booksearch", "music-search", "musicsearch":
 		h.handleSearch(w, r, indexerKey)
 	default:
 		http.Error(w, fmt.Sprintf("Unsupported Torznab function: %s", torznabType), http.StatusBadRequest)
@@ -769,9 +769,9 @@ func (h *APIHandler) handleCaps(w http.ResponseWriter, r *http.Request, indexerK
 			switch mode {
 			case "search":
 				searching.Search = TorznabSearchType{Available: "yes", SupportedParams: supportedParams}
-			case "tv-search":
+			case "tv-search", "tvsearch":
 				searching.TvSearch = TorznabSearchType{Available: "yes", SupportedParams: supportedParams}
-			case "movie-search":
+			case "movie-search", "moviesearch":
 				searching.MovieSearch = TorznabSearchType{Available: "yes", SupportedParams: supportedParams}
 			}
 		}
