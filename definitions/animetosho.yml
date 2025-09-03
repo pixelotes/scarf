@@ -1,0 +1,43 @@
+key: "animetosho"
+name: "Anime Tosho"
+description: "Anime Tosho is a Public torrent site focused on ANIME, taking releases from TokyoTosho and Nyaa.si and others"
+type: "public"
+enabled: "false"
+language: "en-US"
+schedule: "@hourly"
+settings:
+  - name: use_flaresolverr
+    type: checkbox
+    label: Use FlareSolverr
+    default: 'false'
+search:
+  type: "json"
+  urls:
+    # Use the correct JSON feed URL
+    - "https://feed.animetosho.org/json"
+  params:
+    q: "{{.Query}}"
+  results:
+    # The JSON response is a root-level array, so we use "@this"
+    path: "@this"
+    fields:
+      title:
+        selector: "title"
+      # The feed provides the direct magnet URI
+      download_url:
+        selector: "magnet_uri"
+      size:
+        selector: "total_size"
+      seeders:
+        selector: "seeders"
+      leechers:
+        selector: "leechers"
+      # The timestamp is a standard Unix timestamp, which Scarf can parse
+      publish_date:
+        selector: "timestamp"
+  modes:
+    search: [q]
+    tv-search: [q, season, ep]
+category_mappings:
+  - indexer_cat: "Anime"
+    torznab_cat: 5080 # Maps to TV/Anime
