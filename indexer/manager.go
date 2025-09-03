@@ -1267,7 +1267,7 @@ func parseFuzzyDate(dateStr string) (time.Time, error) {
 
 	formats := []string{
 		time.RFC3339, "2006-01-02 15:04:05", "2006-01-02 15:04",
-		time.RFC1123, "Jan 2, 2006",
+		time.RFC1123, "Jan 2, 2006", "2006-01-02",
 		time.RFC822,
 	}
 	for _, format := range formats {

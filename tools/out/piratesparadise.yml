@@ -1,0 +1,41 @@
+key: piratesparadise
+name: Pirate's Paradise
+description: Pirate's Paradise is a Public Torrent Tracker for MOVIES / TV
+type: public
+enabled: true
+language: en-US
+schedule: '@hourly'
+settings:
+- name: use_flaresolverr
+  type: checkbox
+  label: Use FlareSolverr
+  default: 'false'
+search:
+  type: html
+  urls:
+  - https://piratesparadise.org/search.php
+  params: {}
+  results:
+    rows_selector: table > tbody > tr
+    fields:
+      title:
+        selector: a.name-link
+      details_url:
+        selector: a.name-link@href
+      size:
+        selector: td:nth-child(2)
+      seeders:
+        selector: span.seeds
+      leechers:
+        selector: span.peers
+      publish_date:
+        selector: span.date-added
+  modes:
+    search:
+    - q
+    tv-search:
+    - q
+    - season
+    - ep
+    movie-search:
+    - q
