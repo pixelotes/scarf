@@ -43,7 +43,6 @@ type APIHandler struct {
 }
 
 // Represents the stats object
-// Represents the stats object
 type AppStats struct {
 	Cache          *cache.CacheStats `json:"cache"`
 	DB             *cache.DBStats    `json:"db"`
