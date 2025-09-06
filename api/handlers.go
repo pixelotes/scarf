@@ -587,6 +587,14 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 // TestIndexer runs a test search on an indexer.
 func (h *APIHandler) TestIndexer(w http.ResponseWriter, r *http.Request) {
 	key := r.URL.Query().Get("indexer")
+
+	// The "all" indexer is a special case
+	if key == "all" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+		return
+	}
+
 	limiter := h.getRateLimiter(key)
 	if !limiter.Allow() {
 		json.NewEncoder(w).Encode(map[string]interface{}{

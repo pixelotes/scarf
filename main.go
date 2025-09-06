@@ -331,6 +331,7 @@ func main() {
 	// --- Public / Unauthenticated Routes ---
 	r.Get("/health", apiHandler.HealthCheck)
 	r.Get("/api/health", apiHandler.HealthCheck)
+	r.Get("/api/v1/test_indexer", apiHandler.TestIndexer)
 
 	// Add cache statistics endpoint (useful for monitoring)
 	r.Get("/api/cache/stats", func(w http.ResponseWriter, r *http.Request) {
@@ -376,7 +377,6 @@ func main() {
 		r.Use(auth.Middleware)
 		r.Get("/api/v1/indexers", apiHandler.ListIndexers)
 		r.Get("/api/v1/search", apiHandler.WebSearch)
-		r.Get("/api/v1/test_indexer", apiHandler.TestIndexer)
 		r.Get("/api/v1/flexget_key", apiHandler.GetFlexgetAPIKey)
 		r.Post("/api/v1/indexer/toggle", apiHandler.ToggleIndexer)
 		r.Post("/api/v1/indexer/config", apiHandler.UpdateIndexerConfig)
