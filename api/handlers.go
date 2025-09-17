@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"regexp"
 	"runtime"
 	"slices"
 	"sort"
@@ -66,6 +67,22 @@ type SearchResponse struct {
 	CacheHit   bool                   `json:"cache_hit"`
 	SearchTime string                 `json:"search_time_ms"`
 	Indexer    string                 `json:"indexer"`
+}
+
+// parseQueryAndFilters extracts terms in double quotes for filtering and returns a clean query.
+func parseQueryAndFilters(query string) (string, []string) {
+	re := regexp.MustCompile(`"([^"]+)"`)
+	filters := []string{}
+	matches := re.FindAllStringSubmatch(query, -1)
+	for _, match := range matches {
+		if len(match) > 1 {
+			filters = append(filters, strings.ToLower(match[1]))
+		}
+	}
+	// The clean query sent to the indexer should contain the full string
+	cleanQuery := re.ReplaceAllString(query, "$1")
+	cleanQuery = strings.Join(strings.Fields(cleanQuery), " ") // Remove extra spaces
+	return cleanQuery, filters
 }
 
 func (h *APIHandler) recordSearch(query string) {
@@ -476,8 +493,11 @@ func (h *APIHandler) deduplicateResults(results []indexer.SearchResult) []indexe
 func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 
+	originalQuery := r.URL.Query().Get("q")
+	cleanQuery, filters := parseQueryAndFilters(originalQuery)
+
 	searchParams := indexer.SearchParams{
-		Query:    r.URL.Query().Get("q"),
+		Query:    cleanQuery,
 		Category: r.URL.Query().Get("cat"),
 		IMDBID:   r.URL.Query().Get("imdbid"),
 	}
@@ -550,6 +570,24 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 		slog.Error("Error during web search", "indexer", indexerKey, "query", searchParams.Query, "error", err)
 		http.Error(w, `{"error": "Failed to perform search on the selected indexer"}`, http.StatusInternalServerError)
 		return
+	}
+
+	if len(filters) > 0 {
+		var filteredResults []indexer.SearchResult
+		for _, result := range results {
+			titleLower := strings.ToLower(result.Title)
+			matchesAll := true
+			for _, filter := range filters {
+				if !strings.Contains(titleLower, filter) {
+					matchesAll = false
+					break
+				}
+			}
+			if matchesAll {
+				filteredResults = append(filteredResults, result)
+			}
+		}
+		results = filteredResults
 	}
 
 	// Apply pagination
@@ -832,8 +870,11 @@ func (h *APIHandler) handleCaps(w http.ResponseWriter, r *http.Request, indexerK
 
 // handleSearch performs the actual search and returns RSS (updated for unified cache)
 func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexerKey string) {
+	originalQuery := r.URL.Query().Get("q")
+	cleanQuery, filters := parseQueryAndFilters(originalQuery)
+
 	searchParams := indexer.SearchParams{
-		Query:    r.URL.Query().Get("q"),
+		Query:    cleanQuery,
 		Category: r.URL.Query().Get("cat"),
 		IMDBID:   r.URL.Query().Get("imdbid"),
 		TVDBID:   r.URL.Query().Get("tvdbid"),
@@ -910,6 +951,24 @@ func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexe
 				}
 			}
 		}
+	}
+
+	if len(filters) > 0 {
+		var filteredResults []indexer.SearchResult
+		for _, result := range results {
+			titleLower := strings.ToLower(result.Title)
+			matchesAll := true
+			for _, filter := range filters {
+				if !strings.Contains(titleLower, filter) {
+					matchesAll = false
+					break
+				}
+			}
+			if matchesAll {
+				filteredResults = append(filteredResults, result)
+			}
+		}
+		results = filteredResults
 	}
 
 	// Apply pagination to Torznab results
