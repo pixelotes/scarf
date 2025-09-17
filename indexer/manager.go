@@ -58,6 +58,7 @@ type Manager struct {
 	reloadCallback       func()
 	mu                   sync.RWMutex
 	failureTimestamps    map[string][]time.Time
+	lastRequest          map[string]time.Time
 	maxFailures          int
 }
 
@@ -116,6 +117,7 @@ func NewManager(definitionsPath string, maxFailures int) (*Manager, error) {
 		definitionsPath:      definitionsPath,
 		watcher:              watcher,
 		failureTimestamps:    make(map[string][]time.Time),
+		lastRequest:          make(map[string]time.Time),
 		maxFailures:          maxFailures,
 	}
 
@@ -737,6 +739,25 @@ func (m *Manager) GetFailureStats() map[string]int {
 	return stats
 }
 
+func (m *Manager) respectRateLimit(indexerKey string, def *Definition) {
+	if def.RateLimit <= 0 {
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if last, ok := m.lastRequest[indexerKey]; ok {
+		elapsed := time.Since(last)
+		if elapsed < def.RateLimit {
+			waitUntil := def.RateLimit - elapsed
+			slog.Debug("Rate limit active, waiting", "indexer", indexerKey, "duration", waitUntil)
+			time.Sleep(waitUntil)
+		}
+	}
+	m.lastRequest[indexerKey] = time.Now()
+}
+
 // Search queries a specific indexer using the appropriate search mode.
 func (m *Manager) Search(ctx context.Context, indexerKey string, params SearchParams) ([]SearchResult, error) {
 	def, ok := m.GetIndexer(indexerKey)
@@ -747,6 +768,9 @@ func (m *Manager) Search(ctx context.Context, indexerKey string, params SearchPa
 	if !bool(def.Enabled) {
 		return nil, fmt.Errorf("indexer '%s' is disabled", indexerKey)
 	}
+
+	// Respect the indexer's rate limit
+	m.respectRateLimit(indexerKey, def)
 
 	if def.Login.URL != "" {
 		if err := m.authenticate(def); err != nil {

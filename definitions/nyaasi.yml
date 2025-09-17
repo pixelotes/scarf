@@ -1,5 +1,6 @@
 key: nyaasi
 name: Nyaa.si
+rate_limit: 2s
 description: Nyaa is a Public torrent site focused on Eastern ASIAN media including anime, manga, literature and music
 type: public
 enabled: "false"

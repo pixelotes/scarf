@@ -1,5 +1,6 @@
 key: "yts"
 name: "YTS"
+rate_limit: 2s
 description: "YTS is a Public torrent site specialising in HD movies of small size"
 type: "public"
 enabled: "false"

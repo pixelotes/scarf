@@ -1,5 +1,6 @@
 key: "animetosho"
 name: "Anime Tosho"
+rate_limit: 2s
 description: "Anime Tosho is a Public torrent site focused on ANIME, taking releases from TokyoTosho and Nyaa.si and others"
 type: "public"
 enabled: "false"

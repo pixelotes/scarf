@@ -1,5 +1,6 @@
 key: "frozenlayer"
 name: "Frozen Layer"
+rate_limit: 2s
 description: "Frozen Layer is a SPANISH Public torrent site focused on ANIME"
 type: "public"
 enabled: "false"

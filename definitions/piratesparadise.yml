@@ -1,5 +1,6 @@
 key: piratesparadise
 name: Pirate's Paradise
+rate_limit: 2s
 description: Pirate's Paradise is a Public Torrent Tracker for MOVIES / TV
 type: public
 enabled: "false"

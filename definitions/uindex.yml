@@ -1,5 +1,6 @@
 key: uindex
 name: Uindex
+rate_limit: 2s
 description: Uindex is a Public Torrent Tracker for MOVIES / TV / MUSIC / GENERAL
 type: public
 enabled: "false"

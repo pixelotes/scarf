@@ -1,5 +1,6 @@
 key: 0magnet
 name: 0Magnet
+rate_limit: 2s
 description: "ØMagnet is a CHINESE Public tracker for Asian 3X (JAV)"
 type: public
 enabled: "false"
