@@ -572,6 +572,10 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Apply server-side filtering and sorting
+	results = applyQueryFilters(r, results)
+	applyQuerySorting(r, results)
+
 	if len(filters) > 0 {
 		var filteredResults []indexer.SearchResult
 		for _, result := range results {
@@ -953,6 +957,10 @@ func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexe
 		}
 	}
 
+	// Apply server-side filtering and sorting
+	results = applyQueryFilters(r, results)
+	applyQuerySorting(r, results)
+
 	if len(filters) > 0 {
 		var filteredResults []indexer.SearchResult
 		for _, result := range results {
@@ -1164,4 +1172,93 @@ func findAttr(attrs []TorznabAttr, name string) string {
 func toInt(s string) int {
 	i, _ := strconv.Atoi(s)
 	return i
+}
+
+// --- START: New Filtering and Sorting Logic ---
+
+// applyQueryFilters filters results based on query parameters like min_seeders and min_size.
+func applyQueryFilters(r *http.Request, results []indexer.SearchResult) []indexer.SearchResult {
+	q := r.URL.Query()
+	var filteredResults []indexer.SearchResult
+
+	minSeeders, _ := strconv.Atoi(q.Get("min_seeders"))
+	minSize, _ := parseSize(q.Get("min_size"))
+
+	if minSeeders == 0 && minSize == 0 {
+		return results // No filters to apply
+	}
+
+	for _, result := range results {
+		if result.Seeders < minSeeders {
+			continue
+		}
+		if result.Size < minSize {
+			continue
+		}
+		filteredResults = append(filteredResults, result)
+	}
+	return filteredResults
+}
+
+// applyQuerySorting sorts results based on query parameters, defaulting to seeders desc.
+func applyQuerySorting(r *http.Request, results []indexer.SearchResult) {
+	q := r.URL.Query()
+	sortBy := q.Get("sort")
+	orderBy := strings.ToLower(q.Get("order"))
+
+	// Default to seeders descending
+	if sortBy == "" {
+		sortBy = "seeders"
+		orderBy = "desc"
+	}
+
+	sort.SliceStable(results, func(i, j int) bool {
+		var less bool
+		switch sortBy {
+		case "size":
+			less = results[i].Size < results[j].Size
+		case "seeders":
+			less = results[i].Seeders < results[j].Seeders
+		case "leechers":
+			less = results[i].Leechers < results[j].Leechers
+		case "publishdate":
+			less = results[i].PublishDate.Before(results[j].PublishDate)
+		default:
+			return false // No change in order
+		}
+		if orderBy == "desc" {
+			return !less
+		}
+		return less
+	})
+}
+
+// parseSize converts a human-readable size string (e.g., "1.5GB") to bytes.
+func parseSize(s string) (int64, error) {
+	s = strings.ToUpper(s)
+	re := regexp.MustCompile(`^(\d+(\.\d+)?)\s*(B|KB|MB|GB|TB)$`)
+	matches := re.FindStringSubmatch(s)
+	if len(matches) != 4 {
+		return 0, fmt.Errorf("invalid size format: %s", s)
+	}
+
+	size, err := strconv.ParseFloat(matches[1], 64)
+	if err != nil {
+		return 0, err
+	}
+
+	unit := matches[3]
+	var multiplier float64 = 1
+	switch unit {
+	case "KB":
+		multiplier = 1024
+	case "MB":
+		multiplier = 1024 * 1024
+	case "GB":
+		multiplier = 1024 * 1024 * 1024
+	case "TB":
+		multiplier = 1024 * 1024 * 1024 * 1024
+	}
+
+	return int64(size * multiplier), nil
 }
