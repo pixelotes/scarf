@@ -1,5 +1,6 @@
 key: aniRena
 name: AniRena
+rate_limit: 2s
 description: AniRena is a Public torrent tracker for the latest anime and Japanese related torrents
 type: "public"
 enabled: "false"

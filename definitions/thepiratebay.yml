@@ -1,5 +1,6 @@
 key: "thepiratebay"
 name: "The Pirate Bay"
+rate_limit: 2s
 description: "The galaxy's most resilient Public BitTorrent site"
 type: "public"
 enabled: "false"

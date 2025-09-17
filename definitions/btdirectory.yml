@@ -1,5 +1,6 @@
 key: btdirectory
 name: BTdirectory
+rate_limit: 2s
 description: "BTdirectory (BT目錄) is a Public DHT Crawler"
 type: public
 enabled: "false"

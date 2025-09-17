@@ -100,6 +100,7 @@ type Definition struct {
 	Description      string            `yaml:"description" json:"-"`
 	Language         string            `yaml:"language" json:"-"`
 	Schedule         string            `yaml:"schedule" json:"-"`
+	RateLimit        time.Duration     `yaml:"rate_limit,omitempty" json:"-"`
 	Settings         []UserSetting     `yaml:"settings" json:"settings,omitempty"` // Defines the settings form
 	UserConfig       map[string]string `yaml:"-" json:"user_config"`               // Holds the user's saved values
 	Login            LoginDefinition   `yaml:"login" json:"-"`

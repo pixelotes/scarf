@@ -1,5 +1,6 @@
 key: torrenttip
 name: Torrenttip
+rate_limit: 2s
 description: "Torrenttip (토렌트팁) is a Public KOREAN tracker for Korean media."
 type: public
 enabled: "false"

@@ -1,5 +1,6 @@
 key: "internetarchive"
 name: "Internet Archive"
+rate_limit: 2s
 description: "Internet Archive is a non-profit digital library offering free universal access to books, movies & music."
 type: "public"
 enabled: "false"
