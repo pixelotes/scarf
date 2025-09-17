@@ -204,11 +204,12 @@ Here are some tips for running Scarf in memory-constrained devices:
 - [X] Limit concurrent searches (configurable via env var)
 - [X] Add recent searches to the UI
 - [X] Implement custom rate limiting for trackers (currently there's a hardcoded 5 seconds wait between requests)
-- [ ] Add notifications for health checks (webhooks, pushbullet)
-- [ ] Dynamic search modes list for "/all" endpoint (automatically ignore indexers that don't have the requested search mode)
+- [X] Add custom server-side filtering (i.e. "&min_seeders=5" or "&min_size=1GB")
+- [X] Add custom server-side sorting (i.e. "&sort=size&order=desc")
+  - [X] Make sorting per seeders/desc the default
 - [ ] Implement custom timeouts for trackers (curerntly there's a hardcoded 30s timeout for all indexers)
-- [ ] Add custom server-side filtering (i.e. "&min_seeders=5" or "&min_size=1GB")
-- [ ] Add custom server-side sorting (i.e. "&sort=size&order=desc")
-  - [ ] Make sorting per seeders/desc the default
+- [ ] Add notifications for health checks (webhooks, pushbullet)
+- [ ] Dynamic search modes list for "/all" endpoint (automatically ignore indexers that don't have the requested search modes
+
 
 
