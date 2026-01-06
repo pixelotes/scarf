@@ -26,6 +26,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
+	"golang.org/x/net/html/charset"
 	"golang.org/x/net/publicsuffix"
 	"gopkg.in/yaml.v3"
 )
@@ -934,7 +935,16 @@ func (m *Manager) Search(ctx context.Context, indexerKey string, params SearchPa
 			}
 			return results, err
 		case "html":
-			results, err := m.parseHTMLResults(ctx, resp.Body, def, baseURL)
+			var bodyReader io.Reader = resp.Body
+			ct := strings.ToLower(resp.Header.Get("Content-Type"))
+			if ct != "" && !strings.Contains(ct, "utf-8") && !strings.Contains(ct, "utf8") {
+				bodyReader, err = charset.NewReader(resp.Body, ct)
+				if err != nil {
+					lastErr = fmt.Errorf("HTML conversion from charset %q to UTF-8 failed: %w", ct, err)
+					continue
+				}
+			}
+			results, err := m.parseHTMLResults(ctx, bodyReader, def, baseURL)
 			if err == nil {
 				m.recordSuccess(indexerKey) // Record success
 			}
