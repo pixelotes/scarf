@@ -1,0 +1,1447 @@
+key: noname-club
+name: NoNaMe Club
+rate_limit: 2s
+description: NoNaMe Club (NNM-Club) is a RUSSIAN Public Tracker for MOVIES / TV / MUSIC
+type: public
+enabled: "false"
+language: ru-RU
+schedule: "@hourly"
+settings:
+  - name: use_flaresolverr
+    type: checkbox
+    label: Use FlareSolverr
+    default: "false"
+search:
+  type: html
+  urls:
+    - |
+      https://nnmclub.to/forum/tracker.php{{- if .Categories -}}
+        {{- $first := true -}}
+        {{- range $value := .Categories -}}
+          {{- if $first -}}{{- $first = false -}}?{{- else -}}&{{- end -}}
+          f%5B%5D={{$value}}
+        {{- end -}}
+      {{- else -}}
+        ?f%5B%5D=-1
+      {{- end -}}
+  params:
+    nm: "{{.Query}}"
+  results:
+    rows_selector: table.forumline.tablesorter > tbody > tr:has(a[href^="viewtopic.php?t="]):has(a[href^="download.php?id="])
+    fields:
+      title:
+        selector: a[href^="viewtopic.php?t="] > b
+      details_url:
+        selector: a[href^="viewtopic.php?t="]@href
+      download_url:
+        selector: a[href^="download.php?id="]@href
+      size:
+        selector: td:nth-child(6)
+      seeders:
+        selector: td.seedmed > b
+      leechers:
+        selector: td.leechmed > b
+      publish_date:
+        selector: td:last-child > u
+  modes:
+    search:
+      - q
+    tv-search:
+      - q
+      - season
+      - ep
+    movie-search:
+      - q
+    music-search:
+      - q
+    book-search:
+      - q
+category_mappings:
+  - indexer_cat: "48"
+    torznab_cat: 8000
+  - indexer_cat: "925"
+    torznab_cat: 8000
+  - indexer_cat: "872"
+    torznab_cat: 8000
+  - indexer_cat: "724"
+    torznab_cat: 5000
+  - indexer_cat: "725"
+    torznab_cat: 5000
+  - indexer_cat: "729"
+    torznab_cat: 5000
+  - indexer_cat: "731"
+    torznab_cat: 5000
+  - indexer_cat: "1345"
+    torznab_cat: 5000
+  - indexer_cat: "733"
+    torznab_cat: 5000
+  - indexer_cat: "1346"
+    torznab_cat: 5000
+  - indexer_cat: "1329"
+    torznab_cat: 5000
+  - indexer_cat: "1330"
+    torznab_cat: 5000
+  - indexer_cat: "1331"
+    torznab_cat: 5000
+  - indexer_cat: "1332"
+    torznab_cat: 5000
+  - indexer_cat: "1340"
+    torznab_cat: 5000
+  - indexer_cat: "658"
+    torznab_cat: 5000
+  - indexer_cat: "890"
+    torznab_cat: 5000
+  - indexer_cat: "1336"
+    torznab_cat: 5000
+  - indexer_cat: "1337"
+    torznab_cat: 5000
+  - indexer_cat: "1338"
+    torznab_cat: 5000
+  - indexer_cat: "1339"
+    torznab_cat: 5000
+  - indexer_cat: "660"
+    torznab_cat: 5000
+  - indexer_cat: "232"
+    torznab_cat: 8000
+  - indexer_cat: "734"
+    torznab_cat: 8000
+  - indexer_cat: "742"
+    torznab_cat: 8000
+  - indexer_cat: "735"
+    torznab_cat: 8000
+  - indexer_cat: "738"
+    torznab_cat: 8000
+  - indexer_cat: "967"
+    torznab_cat: 8000
+  - indexer_cat: "907"
+    torznab_cat: 8000
+  - indexer_cat: "739"
+    torznab_cat: 8000
+  - indexer_cat: "1109"
+    torznab_cat: 8000
+  - indexer_cat: "736"
+    torznab_cat: 8000
+  - indexer_cat: "737"
+    torznab_cat: 8000
+  - indexer_cat: "898"
+    torznab_cat: 8000
+  - indexer_cat: "935"
+    torznab_cat: 8000
+  - indexer_cat: "871"
+    torznab_cat: 8000
+  - indexer_cat: "973"
+    torznab_cat: 8000
+  - indexer_cat: "960"
+    torznab_cat: 8000
+  - indexer_cat: "1239"
+    torznab_cat: 8000
+  - indexer_cat: "740"
+    torznab_cat: 8000
+  - indexer_cat: "741"
+    torznab_cat: 8000
+  - indexer_cat: "503"
+    torznab_cat: 8000
+  - indexer_cat: "504"
+    torznab_cat: 8000
+  - indexer_cat: "506"
+    torznab_cat: 8000
+  - indexer_cat: "763"
+    torznab_cat: 8000
+  - indexer_cat: "1335"
+    torznab_cat: 8000
+  - indexer_cat: "1241"
+    torznab_cat: 8000
+  - indexer_cat: "1023"
+    torznab_cat: 8000
+  - indexer_cat: "717"
+    torznab_cat: 8000
+  - indexer_cat: "509"
+    torznab_cat: 8000
+  - indexer_cat: "508"
+    torznab_cat: 8000
+  - indexer_cat: "510"
+    torznab_cat: 8000
+  - indexer_cat: "1254"
+    torznab_cat: 8000
+  - indexer_cat: "1042"
+    torznab_cat: 8000
+  - indexer_cat: "511"
+    torznab_cat: 8000
+  - indexer_cat: "916"
+    torznab_cat: 8000
+  - indexer_cat: "512"
+    torznab_cat: 8000
+  - indexer_cat: "561"
+    torznab_cat: 8000
+  - indexer_cat: "1284"
+    torznab_cat: 8000
+  - indexer_cat: "562"
+    torznab_cat: 8000
+  - indexer_cat: "513"
+    torznab_cat: 8000
+  - indexer_cat: "514"
+    torznab_cat: 8000
+  - indexer_cat: "515"
+    torznab_cat: 8000
+  - indexer_cat: "516"
+    torznab_cat: 8000
+  - indexer_cat: "517"
+    torznab_cat: 8000
+  - indexer_cat: "518"
+    torznab_cat: 8000
+  - indexer_cat: "519"
+    torznab_cat: 8000
+  - indexer_cat: "520"
+    torznab_cat: 8000
+  - indexer_cat: "521"
+    torznab_cat: 8000
+  - indexer_cat: "522"
+    torznab_cat: 8000
+  - indexer_cat: "523"
+    torznab_cat: 8000
+  - indexer_cat: "524"
+    torznab_cat: 8000
+  - indexer_cat: "532"
+    torznab_cat: 8000
+  - indexer_cat: "533"
+    torznab_cat: 8000
+  - indexer_cat: "535"
+    torznab_cat: 8000
+  - indexer_cat: "530"
+    torznab_cat: 8000
+  - indexer_cat: "529"
+    torznab_cat: 8000
+  - indexer_cat: "525"
+    torznab_cat: 8000
+  - indexer_cat: "526"
+    torznab_cat: 8000
+  - indexer_cat: "527"
+    torznab_cat: 8000
+  - indexer_cat: "545"
+    torznab_cat: 8000
+  - indexer_cat: "764"
+    torznab_cat: 8000
+  - indexer_cat: "765"
+    torznab_cat: 8000
+  - indexer_cat: "820"
+    torznab_cat: 8000
+  - indexer_cat: "552"
+    torznab_cat: 8000
+  - indexer_cat: "553"
+    torznab_cat: 8000
+  - indexer_cat: "554"
+    torznab_cat: 8000
+  - indexer_cat: "550"
+    torznab_cat: 8000
+  - indexer_cat: "549"
+    torznab_cat: 8000
+  - indexer_cat: "548"
+    torznab_cat: 8000
+  - indexer_cat: "216"
+    torznab_cat: 2000
+  - indexer_cat: "270"
+    torznab_cat: 2000
+  - indexer_cat: "218"
+    torznab_cat: 2000
+  - indexer_cat: "219"
+    torznab_cat: 2000
+  - indexer_cat: "954"
+    torznab_cat: 2000
+  - indexer_cat: "217"
+    torznab_cat: 2000
+  - indexer_cat: "1293"
+    torznab_cat: 2000
+  - indexer_cat: "1298"
+    torznab_cat: 2000
+  - indexer_cat: "318"
+    torznab_cat: 2000
+  - indexer_cat: "320"
+    torznab_cat: 2000
+  - indexer_cat: "677"
+    torznab_cat: 2000
+  - indexer_cat: "1177"
+    torznab_cat: 2000
+  - indexer_cat: "319"
+    torznab_cat: 2000
+  - indexer_cat: "678"
+    torznab_cat: 2000
+  - indexer_cat: "885"
+    torznab_cat: 2000
+  - indexer_cat: "908"
+    torznab_cat: 2000
+  - indexer_cat: "1310"
+    torznab_cat: 2000
+  - indexer_cat: "909"
+    torznab_cat: 2000
+  - indexer_cat: "910"
+    torznab_cat: 2000
+  - indexer_cat: "911"
+    torznab_cat: 2000
+  - indexer_cat: "912"
+    torznab_cat: 2000
+  - indexer_cat: "220"
+    torznab_cat: 2000
+  - indexer_cat: "221"
+    torznab_cat: 2000
+  - indexer_cat: "222"
+    torznab_cat: 2000
+  - indexer_cat: "882"
+    torznab_cat: 2000
+  - indexer_cat: "889"
+    torznab_cat: 2000
+  - indexer_cat: "224"
+    torznab_cat: 2000
+  - indexer_cat: "225"
+    torznab_cat: 2000
+  - indexer_cat: "226"
+    torznab_cat: 2000
+  - indexer_cat: "227"
+    torznab_cat: 2000
+  - indexer_cat: "1296"
+    torznab_cat: 2000
+  - indexer_cat: "891"
+    torznab_cat: 2000
+  - indexer_cat: "1299"
+    torznab_cat: 2000
+  - indexer_cat: "682"
+    torznab_cat: 2000
+  - indexer_cat: "694"
+    torznab_cat: 2000
+  - indexer_cat: "884"
+    torznab_cat: 2000
+  - indexer_cat: "1211"
+    torznab_cat: 2000
+  - indexer_cat: "693"
+    torznab_cat: 2000
+  - indexer_cat: "913"
+    torznab_cat: 2000
+  - indexer_cat: "228"
+    torznab_cat: 2000
+  - indexer_cat: "1150"
+    torznab_cat: 2000
+  - indexer_cat: "1311"
+    torznab_cat: 2000
+  - indexer_cat: "1313"
+    torznab_cat: 2000
+  - indexer_cat: "1312"
+    torznab_cat: 2000
+  - indexer_cat: "256"
+    torznab_cat: 2000
+  - indexer_cat: "257"
+    torznab_cat: 2000
+  - indexer_cat: "258"
+    torznab_cat: 2000
+  - indexer_cat: "883"
+    torznab_cat: 2000
+  - indexer_cat: "955"
+    torznab_cat: 2000
+  - indexer_cat: "905"
+    torznab_cat: 2000
+  - indexer_cat: "271"
+    torznab_cat: 2000
+  - indexer_cat: "1210"
+    torznab_cat: 2000
+  - indexer_cat: "264"
+    torznab_cat: 2000
+  - indexer_cat: "265"
+    torznab_cat: 2000
+  - indexer_cat: "272"
+    torznab_cat: 2000
+  - indexer_cat: "1262"
+    torznab_cat: 2000
+  - indexer_cat: "266"
+    torznab_cat: 2000
+  - indexer_cat: "1294"
+    torznab_cat: 2000
+  - indexer_cat: "1219"
+    torznab_cat: 5000
+  - indexer_cat: "1221"
+    torznab_cat: 5000
+  - indexer_cat: "1220"
+    torznab_cat: 5000
+  - indexer_cat: "722"
+    torznab_cat: 5000
+  - indexer_cat: "768"
+    torznab_cat: 5000
+  - indexer_cat: "1344"
+    torznab_cat: 8000
+  - indexer_cat: "779"
+    torznab_cat: 5000
+  - indexer_cat: "1288"
+    torznab_cat: 5000
+  - indexer_cat: "787"
+    torznab_cat: 5000
+  - indexer_cat: "1141"
+    torznab_cat: 5000
+  - indexer_cat: "777"
+    torznab_cat: 5000
+  - indexer_cat: "786"
+    torznab_cat: 5000
+  - indexer_cat: "776"
+    torznab_cat: 5000
+  - indexer_cat: "785"
+    torznab_cat: 5000
+  - indexer_cat: "775"
+    torznab_cat: 5000
+  - indexer_cat: "1265"
+    torznab_cat: 5000
+  - indexer_cat: "1242"
+    torznab_cat: 5000
+  - indexer_cat: "1140"
+    torznab_cat: 5000
+  - indexer_cat: "782"
+    torznab_cat: 5000
+  - indexer_cat: "773"
+    torznab_cat: 5000
+  - indexer_cat: "1142"
+    torznab_cat: 5000
+  - indexer_cat: "772"
+    torznab_cat: 5000
+  - indexer_cat: "771"
+    torznab_cat: 5000
+  - indexer_cat: "783"
+    torznab_cat: 5000
+  - indexer_cat: "1144"
+    torznab_cat: 5000
+  - indexer_cat: "804"
+    torznab_cat: 5000
+  - indexer_cat: "1290"
+    torznab_cat: 5000
+  - indexer_cat: "1300"
+    torznab_cat: 5000
+  - indexer_cat: "784"
+    torznab_cat: 5000
+  - indexer_cat: "774"
+    torznab_cat: 5000
+  - indexer_cat: "922"
+    torznab_cat: 5000
+  - indexer_cat: "770"
+    torznab_cat: 5000
+  - indexer_cat: "1320"
+    torznab_cat: 5000
+  - indexer_cat: "780"
+    torznab_cat: 5000
+  - indexer_cat: "781"
+    torznab_cat: 5000
+  - indexer_cat: "1322"
+    torznab_cat: 5000
+  - indexer_cat: "769"
+    torznab_cat: 5000
+  - indexer_cat: "799"
+    torznab_cat: 5000
+  - indexer_cat: "800"
+    torznab_cat: 5000
+  - indexer_cat: "791"
+    torznab_cat: 5000
+  - indexer_cat: "793"
+    torznab_cat: 5000
+  - indexer_cat: "794"
+    torznab_cat: 5000
+  - indexer_cat: "796"
+    torznab_cat: 5000
+  - indexer_cat: "795"
+    torznab_cat: 5000
+  - indexer_cat: "713"
+    torznab_cat: 5000
+  - indexer_cat: "706"
+    torznab_cat: 5000
+  - indexer_cat: "577"
+    torznab_cat: 5000
+  - indexer_cat: "894"
+    torznab_cat: 5000
+  - indexer_cat: "578"
+    torznab_cat: 5000
+  - indexer_cat: "580"
+    torznab_cat: 5000
+  - indexer_cat: "579"
+    torznab_cat: 5000
+  - indexer_cat: "953"
+    torznab_cat: 5000
+  - indexer_cat: "581"
+    torznab_cat: 5000
+  - indexer_cat: "806"
+    torznab_cat: 5000
+  - indexer_cat: "714"
+    torznab_cat: 5000
+  - indexer_cat: "761"
+    torznab_cat: 5000
+  - indexer_cat: "809"
+    torznab_cat: 5000
+  - indexer_cat: "924"
+    torznab_cat: 5000
+  - indexer_cat: "812"
+    torznab_cat: 5000
+  - indexer_cat: "576"
+    torznab_cat: 5000
+  - indexer_cat: "590"
+    torznab_cat: 5000
+  - indexer_cat: "591"
+    torznab_cat: 5000
+  - indexer_cat: "588"
+    torznab_cat: 5000
+  - indexer_cat: "589"
+    torznab_cat: 5000
+  - indexer_cat: "598"
+    torznab_cat: 5000
+  - indexer_cat: "652"
+    torznab_cat: 5000
+  - indexer_cat: "599"
+    torznab_cat: 5000
+  - indexer_cat: "959"
+    torznab_cat: 5000
+  - indexer_cat: "956"
+    torznab_cat: 5000
+  - indexer_cat: "597"
+    torznab_cat: 5000
+  - indexer_cat: "593"
+    torznab_cat: 5000
+  - indexer_cat: "594"
+    torznab_cat: 5000
+  - indexer_cat: "819"
+    torznab_cat: 5000
+  - indexer_cat: "595"
+    torznab_cat: 5000
+  - indexer_cat: "587"
+    torznab_cat: 5000
+  - indexer_cat: "584"
+    torznab_cat: 5000
+  - indexer_cat: "586"
+    torznab_cat: 5000
+  - indexer_cat: "585"
+    torznab_cat: 5000
+  - indexer_cat: "600"
+    torznab_cat: 5000
+  - indexer_cat: "596"
+    torznab_cat: 5000
+  - indexer_cat: "1295"
+    torznab_cat: 5000
+  - indexer_cat: "614"
+    torznab_cat: 5000
+  - indexer_cat: "603"
+    torznab_cat: 5000
+  - indexer_cat: "1308"
+    torznab_cat: 5000
+  - indexer_cat: "1309"
+    torznab_cat: 5000
+  - indexer_cat: "1206"
+    torznab_cat: 5000
+  - indexer_cat: "1194"
+    torznab_cat: 5000
+  - indexer_cat: "1062"
+    torznab_cat: 5000
+  - indexer_cat: "974"
+    torznab_cat: 5000
+  - indexer_cat: "609"
+    torznab_cat: 5000
+  - indexer_cat: "1263"
+    torznab_cat: 5000
+  - indexer_cat: "951"
+    torznab_cat: 5000
+  - indexer_cat: "975"
+    torznab_cat: 5000
+  - indexer_cat: "608"
+    torznab_cat: 5000
+  - indexer_cat: "607"
+    torznab_cat: 5000
+  - indexer_cat: "606"
+    torznab_cat: 5000
+  - indexer_cat: "750"
+    torznab_cat: 5000
+  - indexer_cat: "605"
+    torznab_cat: 5000
+  - indexer_cat: "604"
+    torznab_cat: 5000
+  - indexer_cat: "950"
+    torznab_cat: 5000
+  - indexer_cat: "610"
+    torznab_cat: 5000
+  - indexer_cat: "613"
+    torznab_cat: 5000
+  - indexer_cat: "612"
+    torznab_cat: 5000
+  - indexer_cat: "653"
+    torznab_cat: 5000
+  - indexer_cat: "654"
+    torznab_cat: 5000
+  - indexer_cat: "611"
+    torznab_cat: 5000
+  - indexer_cat: "656"
+    torznab_cat: 5000
+  - indexer_cat: "615"
+    torznab_cat: 5080
+  - indexer_cat: "616"
+    torznab_cat: 5080
+  - indexer_cat: "617"
+    torznab_cat: 5080
+  - indexer_cat: "648"
+    torznab_cat: 5080
+  - indexer_cat: "619"
+    torznab_cat: 5080
+  - indexer_cat: "620"
+    torznab_cat: 5080
+  - indexer_cat: "623"
+    torznab_cat: 5080
+  - indexer_cat: "622"
+    torznab_cat: 5080
+  - indexer_cat: "621"
+    torznab_cat: 5080
+  - indexer_cat: "632"
+    torznab_cat: 5080
+  - indexer_cat: "624"
+    torznab_cat: 5080
+  - indexer_cat: "627"
+    torznab_cat: 5080
+  - indexer_cat: "626"
+    torznab_cat: 5080
+  - indexer_cat: "625"
+    torznab_cat: 5080
+  - indexer_cat: "644"
+    torznab_cat: 5080
+  - indexer_cat: "628"
+    torznab_cat: 5080
+  - indexer_cat: "635"
+    torznab_cat: 5080
+  - indexer_cat: "634"
+    torznab_cat: 5080
+  - indexer_cat: "638"
+    torznab_cat: 5080
+  - indexer_cat: "646"
+    torznab_cat: 5080
+  - indexer_cat: "645"
+    torznab_cat: 5080
+  - indexer_cat: "639"
+    torznab_cat: 5080
+  - indexer_cat: "640"
+    torznab_cat: 5080
+  - indexer_cat: "432"
+    torznab_cat: 7000
+  - indexer_cat: "755"
+    torznab_cat: 7000
+  - indexer_cat: "481"
+    torznab_cat: 7000
+  - indexer_cat: "557"
+    torznab_cat: 7000
+  - indexer_cat: "442"
+    torznab_cat: 7000
+  - indexer_cat: "441"
+    torznab_cat: 7000
+  - indexer_cat: "875"
+    torznab_cat: 7000
+  - indexer_cat: "1176"
+    torznab_cat: 7000
+  - indexer_cat: "444"
+    torznab_cat: 7000
+  - indexer_cat: "443"
+    torznab_cat: 7000
+  - indexer_cat: "440"
+    torznab_cat: 7000
+  - indexer_cat: "1199"
+    torznab_cat: 7000
+  - indexer_cat: "433"
+    torznab_cat: 7000
+  - indexer_cat: "447"
+    torznab_cat: 7000
+  - indexer_cat: "445"
+    torznab_cat: 7000
+  - indexer_cat: "817"
+    torznab_cat: 7000
+  - indexer_cat: "818"
+    torznab_cat: 7000
+  - indexer_cat: "434"
+    torznab_cat: 7000
+  - indexer_cat: "1349"
+    torznab_cat: 7000
+  - indexer_cat: "957"
+    torznab_cat: 7000
+  - indexer_cat: "931"
+    torznab_cat: 7000
+  - indexer_cat: "1152"
+    torznab_cat: 7000
+  - indexer_cat: "455"
+    torznab_cat: 7000
+  - indexer_cat: "453"
+    torznab_cat: 7000
+  - indexer_cat: "1063"
+    torznab_cat: 7000
+  - indexer_cat: "452"
+    torznab_cat: 7000
+  - indexer_cat: "451"
+    torznab_cat: 7000
+  - indexer_cat: "449"
+    torznab_cat: 7000
+  - indexer_cat: "1153"
+    torznab_cat: 7000
+  - indexer_cat: "1347"
+    torznab_cat: 7000
+  - indexer_cat: "482"
+    torznab_cat: 7000
+  - indexer_cat: "483"
+    torznab_cat: 7000
+  - indexer_cat: "484"
+    torznab_cat: 7000
+  - indexer_cat: "1343"
+    torznab_cat: 7000
+  - indexer_cat: "438"
+    torznab_cat: 7000
+  - indexer_cat: "485"
+    torznab_cat: 7000
+  - indexer_cat: "473"
+    torznab_cat: 7000
+  - indexer_cat: "472"
+    torznab_cat: 7000
+  - indexer_cat: "471"
+    torznab_cat: 7000
+  - indexer_cat: "895"
+    torznab_cat: 7000
+  - indexer_cat: "470"
+    torznab_cat: 7000
+  - indexer_cat: "896"
+    torznab_cat: 7000
+  - indexer_cat: "480"
+    torznab_cat: 7000
+  - indexer_cat: "436"
+    torznab_cat: 3030
+  - indexer_cat: "458"
+    torznab_cat: 3030
+  - indexer_cat: "457"
+    torznab_cat: 3030
+  - indexer_cat: "1342"
+    torznab_cat: 3030
+  - indexer_cat: "459"
+    torznab_cat: 3030
+  - indexer_cat: "460"
+    torznab_cat: 3030
+  - indexer_cat: "461"
+    torznab_cat: 3030
+  - indexer_cat: "462"
+    torznab_cat: 3030
+  - indexer_cat: "437"
+    torznab_cat: 7000
+  - indexer_cat: "466"
+    torznab_cat: 5000
+  - indexer_cat: "1319"
+    torznab_cat: 5000
+  - indexer_cat: "463"
+    torznab_cat: 5000
+  - indexer_cat: "958"
+    torznab_cat: 5000
+  - indexer_cat: "1223"
+    torznab_cat: 5000
+  - indexer_cat: "467"
+    torznab_cat: 5000
+  - indexer_cat: "464"
+    torznab_cat: 5000
+  - indexer_cat: "465"
+    torznab_cat: 5000
+  - indexer_cat: "1348"
+    torznab_cat: 5000
+  - indexer_cat: "469"
+    torznab_cat: 5000
+  - indexer_cat: "439"
+    torznab_cat: 7000
+  - indexer_cat: "477"
+    torznab_cat: 7000
+  - indexer_cat: "476"
+    torznab_cat: 7000
+  - indexer_cat: "475"
+    torznab_cat: 7000
+  - indexer_cat: "474"
+    torznab_cat: 7000
+  - indexer_cat: "886"
+    torznab_cat: 7000
+  - indexer_cat: "478"
+    torznab_cat: 7000
+  - indexer_cat: "486"
+    torznab_cat: 7000
+  - indexer_cat: "490"
+    torznab_cat: 7000
+  - indexer_cat: "657"
+    torznab_cat: 7000
+  - indexer_cat: "489"
+    torznab_cat: 7000
+  - indexer_cat: "488"
+    torznab_cat: 7000
+  - indexer_cat: "487"
+    torznab_cat: 7000
+  - indexer_cat: "1198"
+    torznab_cat: 7000
+  - indexer_cat: "1227"
+    torznab_cat: 7000
+  - indexer_cat: "893"
+    torznab_cat: 7000
+  - indexer_cat: "491"
+    torznab_cat: 7000
+  - indexer_cat: "767"
+    torznab_cat: 7000
+  - indexer_cat: "299"
+    torznab_cat: 7000
+  - indexer_cat: "887"
+    torznab_cat: 7000
+  - indexer_cat: "301"
+    torznab_cat: 7000
+  - indexer_cat: "1334"
+    torznab_cat: 7000
+  - indexer_cat: "300"
+    torznab_cat: 7000
+  - indexer_cat: "1341"
+    torznab_cat: 7000
+  - indexer_cat: "492"
+    torznab_cat: 7000
+  - indexer_cat: "558"
+    torznab_cat: 7000
+  - indexer_cat: "1173"
+    torznab_cat: 7000
+  - indexer_cat: "1174"
+    torznab_cat: 7000
+  - indexer_cat: "1171"
+    torznab_cat: 7000
+  - indexer_cat: "662"
+    torznab_cat: 7000
+  - indexer_cat: "1175"
+    torznab_cat: 7000
+  - indexer_cat: "1172"
+    torznab_cat: 7000
+  - indexer_cat: "933"
+    torznab_cat: 7000
+  - indexer_cat: "815"
+    torznab_cat: 7000
+  - indexer_cat: "1170"
+    torznab_cat: 7000
+  - indexer_cat: "398"
+    torznab_cat: 7000
+  - indexer_cat: "816"
+    torznab_cat: 7000
+  - indexer_cat: "313"
+    torznab_cat: 3000
+  - indexer_cat: "1291"
+    torznab_cat: 3000
+  - indexer_cat: "680"
+    torznab_cat: 3000
+  - indexer_cat: "1149"
+    torznab_cat: 3000
+  - indexer_cat: "429"
+    torznab_cat: 3000
+  - indexer_cat: "1234"
+    torznab_cat: 3000
+  - indexer_cat: "681"
+    torznab_cat: 3000
+  - indexer_cat: "330"
+    torznab_cat: 3000
+  - indexer_cat: "1256"
+    torznab_cat: 3000
+  - indexer_cat: "1285"
+    torznab_cat: 3040
+  - indexer_cat: "370"
+    torznab_cat: 3000
+  - indexer_cat: "1260"
+    torznab_cat: 3040
+  - indexer_cat: "371"
+    torznab_cat: 3000
+  - indexer_cat: "1261"
+    torznab_cat: 3040
+  - indexer_cat: "375"
+    torznab_cat: 3000
+  - indexer_cat: "1259"
+    torznab_cat: 3040
+  - indexer_cat: "374"
+    torznab_cat: 3000
+  - indexer_cat: "1257"
+    torznab_cat: 3040
+  - indexer_cat: "373"
+    torznab_cat: 3000
+  - indexer_cat: "1258"
+    torznab_cat: 3040
+  - indexer_cat: "372"
+    torznab_cat: 3000
+  - indexer_cat: "1160"
+    torznab_cat: 3040
+  - indexer_cat: "876"
+    torznab_cat: 3000
+  - indexer_cat: "1255"
+    torznab_cat: 3040
+  - indexer_cat: "376"
+    torznab_cat: 3000
+  - indexer_cat: "326"
+    torznab_cat: 3000
+  - indexer_cat: "1352"
+    torznab_cat: 3000
+  - indexer_cat: "359"
+    torznab_cat: 3040
+  - indexer_cat: "358"
+    torznab_cat: 3000
+  - indexer_cat: "1353"
+    torznab_cat: 3000
+  - indexer_cat: "1188"
+    torznab_cat: 3040
+  - indexer_cat: "1189"
+    torznab_cat: 3000
+  - indexer_cat: "328"
+    torznab_cat: 3000
+  - indexer_cat: "1180"
+    torznab_cat: 3040
+  - indexer_cat: "1181"
+    torznab_cat: 3000
+  - indexer_cat: "364"
+    torznab_cat: 3040
+  - indexer_cat: "363"
+    torznab_cat: 3000
+  - indexer_cat: "1179"
+    torznab_cat: 3040
+  - indexer_cat: "879"
+    torznab_cat: 3000
+  - indexer_cat: "322"
+    torznab_cat: 3000
+  - indexer_cat: "1350"
+    torznab_cat: 3000
+  - indexer_cat: "962"
+    torznab_cat: 3040
+  - indexer_cat: "333"
+    torznab_cat: 3000
+  - indexer_cat: "1356"
+    torznab_cat: 3000
+  - indexer_cat: "965"
+    torznab_cat: 3040
+  - indexer_cat: "336"
+    torznab_cat: 3000
+  - indexer_cat: "1362"
+    torznab_cat: 3000
+  - indexer_cat: "337"
+    torznab_cat: 3040
+  - indexer_cat: "338"
+    torznab_cat: 3000
+  - indexer_cat: "1351"
+    torznab_cat: 3000
+  - indexer_cat: "963"
+    torznab_cat: 3040
+  - indexer_cat: "334"
+    torznab_cat: 3000
+  - indexer_cat: "1357"
+    torznab_cat: 3000
+  - indexer_cat: "961"
+    torznab_cat: 3040
+  - indexer_cat: "332"
+    torznab_cat: 3000
+  - indexer_cat: "325"
+    torznab_cat: 3000
+  - indexer_cat: "1354"
+    torznab_cat: 3000
+  - indexer_cat: "1165"
+    torznab_cat: 3040
+  - indexer_cat: "1166"
+    torznab_cat: 3000
+  - indexer_cat: "1168"
+    torznab_cat: 3000
+  - indexer_cat: "1167"
+    torznab_cat: 3040
+  - indexer_cat: "1162"
+    torznab_cat: 3040
+  - indexer_cat: "352"
+    torznab_cat: 3000
+  - indexer_cat: "1164"
+    torznab_cat: 3040
+  - indexer_cat: "1163"
+    torznab_cat: 3000
+  - indexer_cat: "1161"
+    torznab_cat: 3040
+  - indexer_cat: "353"
+    torznab_cat: 3000
+  - indexer_cat: "324"
+    torznab_cat: 3000
+  - indexer_cat: "1327"
+    torznab_cat: 3040
+  - indexer_cat: "1328"
+    torznab_cat: 3000
+  - indexer_cat: "1325"
+    torznab_cat: 3040
+  - indexer_cat: "1326"
+    torznab_cat: 3000
+  - indexer_cat: "1365"
+    torznab_cat: 3000
+  - indexer_cat: "1366"
+    torznab_cat: 3000
+  - indexer_cat: "1323"
+    torznab_cat: 3040
+  - indexer_cat: "1324"
+    torznab_cat: 3000
+  - indexer_cat: "976"
+    torznab_cat: 3040
+  - indexer_cat: "346"
+    torznab_cat: 3000
+  - indexer_cat: "1363"
+    torznab_cat: 3000
+  - indexer_cat: "977"
+    torznab_cat: 3040
+  - indexer_cat: "345"
+    torznab_cat: 3000
+  - indexer_cat: "349"
+    torznab_cat: 3000
+  - indexer_cat: "1243"
+    torznab_cat: 3000
+  - indexer_cat: "347"
+    torznab_cat: 3000
+  - indexer_cat: "979"
+    torznab_cat: 3040
+  - indexer_cat: "673"
+    torznab_cat: 3000
+  - indexer_cat: "671"
+    torznab_cat: 3000
+  - indexer_cat: "1224"
+    torznab_cat: 3040
+  - indexer_cat: "1225"
+    torznab_cat: 3000
+  - indexer_cat: "1367"
+    torznab_cat: 3000
+  - indexer_cat: "980"
+    torznab_cat: 3040
+  - indexer_cat: "672"
+    torznab_cat: 3000
+  - indexer_cat: "1316"
+    torznab_cat: 3040
+  - indexer_cat: "1317"
+    torznab_cat: 3000
+  - indexer_cat: "1364"
+    torznab_cat: 3000
+  - indexer_cat: "981"
+    torznab_cat: 3040
+  - indexer_cat: "344"
+    torznab_cat: 3000
+  - indexer_cat: "1368"
+    torznab_cat: 3000
+  - indexer_cat: "983"
+    torznab_cat: 3040
+  - indexer_cat: "984"
+    torznab_cat: 3000
+  - indexer_cat: "982"
+    torznab_cat: 3040
+  - indexer_cat: "348"
+    torznab_cat: 3000
+  - indexer_cat: "674"
+    torznab_cat: 3000
+  - indexer_cat: "323"
+    torznab_cat: 3000
+  - indexer_cat: "1187"
+    torznab_cat: 3040
+  - indexer_cat: "339"
+    torznab_cat: 3000
+  - indexer_cat: "1186"
+    torznab_cat: 3040
+  - indexer_cat: "340"
+    torznab_cat: 3000
+  - indexer_cat: "1185"
+    torznab_cat: 3040
+  - indexer_cat: "341"
+    torznab_cat: 3000
+  - indexer_cat: "329"
+    torznab_cat: 3000
+  - indexer_cat: "1361"
+    torznab_cat: 3000
+  - indexer_cat: "369"
+    torznab_cat: 3040
+  - indexer_cat: "368"
+    torznab_cat: 3000
+  - indexer_cat: "1218"
+    torznab_cat: 3040
+  - indexer_cat: "365"
+    torznab_cat: 3000
+  - indexer_cat: "1217"
+    torznab_cat: 3040
+  - indexer_cat: "366"
+    torznab_cat: 3000
+  - indexer_cat: "1215"
+    torznab_cat: 3040
+  - indexer_cat: "1216"
+    torznab_cat: 3000
+  - indexer_cat: "1213"
+    torznab_cat: 3040
+  - indexer_cat: "367"
+    torznab_cat: 3000
+  - indexer_cat: "331"
+    torznab_cat: 3000
+  - indexer_cat: "1358"
+    torznab_cat: 3000
+  - indexer_cat: "1157"
+    torznab_cat: 3040
+  - indexer_cat: "711"
+    torznab_cat: 3000
+  - indexer_cat: "1159"
+    torznab_cat: 3040
+  - indexer_cat: "378"
+    torznab_cat: 3000
+  - indexer_cat: "1359"
+    torznab_cat: 3000
+  - indexer_cat: "1158"
+    torznab_cat: 3040
+  - indexer_cat: "379"
+    torznab_cat: 3000
+  - indexer_cat: "380"
+    torznab_cat: 3040
+  - indexer_cat: "1178"
+    torznab_cat: 3000
+  - indexer_cat: "1360"
+    torznab_cat: 3000
+  - indexer_cat: "361"
+    torznab_cat: 3040
+  - indexer_cat: "360"
+    torznab_cat: 3000
+  - indexer_cat: "327"
+    torznab_cat: 3000
+  - indexer_cat: "1184"
+    torznab_cat: 3000
+  - indexer_cat: "824"
+    torznab_cat: 3000
+  - indexer_cat: "1182"
+    torznab_cat: 3000
+  - indexer_cat: "354"
+    torznab_cat: 3000
+  - indexer_cat: "877"
+    torznab_cat: 3000
+  - indexer_cat: "1183"
+    torznab_cat: 3000
+  - indexer_cat: "1190"
+    torznab_cat: 3000
+  - indexer_cat: "917"
+    torznab_cat: 3000
+  - indexer_cat: "410"
+    torznab_cat: 8000
+  - indexer_cat: "411"
+    torznab_cat: 8000
+  - indexer_cat: "412"
+    torznab_cat: 8000
+  - indexer_cat: "1008"
+    torznab_cat: 8000
+  - indexer_cat: "415"
+    torznab_cat: 8000
+  - indexer_cat: "746"
+    torznab_cat: 8000
+  - indexer_cat: "428"
+    torznab_cat: 8000
+  - indexer_cat: "1009"
+    torznab_cat: 8000
+  - indexer_cat: "413"
+    torznab_cat: 8000
+  - indexer_cat: "414"
+    torznab_cat: 8000
+  - indexer_cat: "1010"
+    torznab_cat: 8000
+  - indexer_cat: "1012"
+    torznab_cat: 8000
+  - indexer_cat: "1014"
+    torznab_cat: 8000
+  - indexer_cat: "416"
+    torznab_cat: 8000
+  - indexer_cat: "1013"
+    torznab_cat: 8000
+  - indexer_cat: "1015"
+    torznab_cat: 8000
+  - indexer_cat: "268"
+    torznab_cat: 8000
+  - indexer_cat: "1016"
+    torznab_cat: 8000
+  - indexer_cat: "1041"
+    torznab_cat: 8000
+  - indexer_cat: "1018"
+    torznab_cat: 8000
+  - indexer_cat: "1017"
+    torznab_cat: 8000
+  - indexer_cat: "972"
+    torznab_cat: 8000
+  - indexer_cat: "971"
+    torznab_cat: 8000
+  - indexer_cat: "970"
+    torznab_cat: 8000
+  - indexer_cat: "969"
+    torznab_cat: 8000
+  - indexer_cat: "968"
+    torznab_cat: 8000
+  - indexer_cat: "1146"
+    torznab_cat: 8000
+  - indexer_cat: "418"
+    torznab_cat: 8000
+  - indexer_cat: "1061"
+    torznab_cat: 8000
+  - indexer_cat: "1060"
+    torznab_cat: 8000
+  - indexer_cat: "1059"
+    torznab_cat: 8000
+  - indexer_cat: "1058"
+    torznab_cat: 8000
+  - indexer_cat: "1057"
+    torznab_cat: 8000
+  - indexer_cat: "1056"
+    torznab_cat: 8000
+  - indexer_cat: "1054"
+    torznab_cat: 8000
+  - indexer_cat: "1053"
+    torznab_cat: 8000
+  - indexer_cat: "1052"
+    torznab_cat: 8000
+  - indexer_cat: "1051"
+    torznab_cat: 8000
+  - indexer_cat: "1050"
+    torznab_cat: 8000
+  - indexer_cat: "1049"
+    torznab_cat: 8000
+  - indexer_cat: "1048"
+    torznab_cat: 8000
+  - indexer_cat: "1047"
+    torznab_cat: 8000
+  - indexer_cat: "1046"
+    torznab_cat: 8000
+  - indexer_cat: "1045"
+    torznab_cat: 8000
+  - indexer_cat: "1044"
+    torznab_cat: 8000
+  - indexer_cat: "382"
+    torznab_cat: 8000
+  - indexer_cat: "390"
+    torznab_cat: 8000
+  - indexer_cat: "387"
+    torznab_cat: 8000
+  - indexer_cat: "388"
+    torznab_cat: 8000
+  - indexer_cat: "1264"
+    torznab_cat: 8000
+  - indexer_cat: "1318"
+    torznab_cat: 8000
+  - indexer_cat: "385"
+    torznab_cat: 8000
+  - indexer_cat: "386"
+    torznab_cat: 8000
+  - indexer_cat: "848"
+    torznab_cat: 8000
+  - indexer_cat: "1321"
+    torznab_cat: 8000
+  - indexer_cat: "383"
+    torznab_cat: 8000
+  - indexer_cat: "384"
+    torznab_cat: 8000
+  - indexer_cat: "1292"
+    torznab_cat: 8000
+  - indexer_cat: "389"
+    torznab_cat: 8000
+  - indexer_cat: "391"
+    torznab_cat: 8000
+  - indexer_cat: "1240"
+    torznab_cat: 8000
+  - indexer_cat: "830"
+    torznab_cat: 8000
+  - indexer_cat: "833"
+    torznab_cat: 8000
+  - indexer_cat: "839"
+    torznab_cat: 8000
+  - indexer_cat: "1233"
+    torznab_cat: 8000
+  - indexer_cat: "1236"
+    torznab_cat: 8000
+  - indexer_cat: "832"
+    torznab_cat: 8000
+  - indexer_cat: "829"
+    torznab_cat: 8000
+  - indexer_cat: "828"
+    torznab_cat: 8000
+  - indexer_cat: "1231"
+    torznab_cat: 8000
+  - indexer_cat: "840"
+    torznab_cat: 8000
+  - indexer_cat: "1232"
+    torznab_cat: 8000
+  - indexer_cat: "841"
+    torznab_cat: 8000
+  - indexer_cat: "1238"
+    torznab_cat: 8000
+  - indexer_cat: "844"
+    torznab_cat: 8000
+  - indexer_cat: "842"
+    torznab_cat: 8000
+  - indexer_cat: "843"
+    torznab_cat: 8000
+  - indexer_cat: "537"
+    torznab_cat: 8000
+  - indexer_cat: "538"
+    torznab_cat: 8000
+  - indexer_cat: "1151"
+    torznab_cat: 8000
+  - indexer_cat: "1083"
+    torznab_cat: 8000
+  - indexer_cat: "1029"
+    torznab_cat: 8000
+  - indexer_cat: "1082"
+    torznab_cat: 8000
+  - indexer_cat: "1028"
+    torznab_cat: 8000
+  - indexer_cat: "1087"
+    torznab_cat: 8000
+  - indexer_cat: "1030"
+    torznab_cat: 8000
+  - indexer_cat: "1039"
+    torznab_cat: 8000
+  - indexer_cat: "1038"
+    torznab_cat: 8000
+  - indexer_cat: "1037"
+    torznab_cat: 8000
+  - indexer_cat: "1036"
+    torznab_cat: 8000
+  - indexer_cat: "1035"
+    torznab_cat: 8000
+  - indexer_cat: "1034"
+    torznab_cat: 8000
+  - indexer_cat: "822"
+    torznab_cat: 8000
+  - indexer_cat: "1093"
+    torznab_cat: 8000
+  - indexer_cat: "1092"
+    torznab_cat: 8000
+  - indexer_cat: "1091"
+    torznab_cat: 8000
+  - indexer_cat: "834"
+    torznab_cat: 8000
+  - indexer_cat: "831"
+    torznab_cat: 8000
+  - indexer_cat: "1155"
+    torznab_cat: 8000
+  - indexer_cat: "1156"
+    torznab_cat: 8000
+  - indexer_cat: "1099"
+    torznab_cat: 8000
+  - indexer_cat: "1098"
+    torznab_cat: 8000
+  - indexer_cat: "1096"
+    torznab_cat: 3000
+  - indexer_cat: "1097"
+    torznab_cat: 3040
+  - indexer_cat: "1095"
+    torznab_cat: 3030
+  - indexer_cat: "536"
+    torznab_cat: 8000
+  - indexer_cat: "563"
+    torznab_cat: 8000
+  - indexer_cat: "1032"
+    torznab_cat: 8000
+  - indexer_cat: "1031"
+    torznab_cat: 8000
+  - indexer_cat: "1025"
+    torznab_cat: 8000
+  - indexer_cat: "1026"
+    torznab_cat: 8000
+  - indexer_cat: "564"
+    torznab_cat: 8000
+  - indexer_cat: "1137"
+    torznab_cat: 8000
+  - indexer_cat: "417"
+    torznab_cat: 8000
+  - indexer_cat: "1193"
+    torznab_cat: 8000
+  - indexer_cat: "1192"
+    torznab_cat: 8000
+  - indexer_cat: "1102"
+    torznab_cat: 8000
+  - indexer_cat: "1070"
+    torznab_cat: 8000
+  - indexer_cat: "534"
+    torznab_cat: 8000
+  - indexer_cat: "1077"
+    torznab_cat: 8000
+  - indexer_cat: "267"
+    torznab_cat: 8000
+  - indexer_cat: "1071"
+    torznab_cat: 8000
+  - indexer_cat: "1134"
+    torznab_cat: 8000
+  - indexer_cat: "1107"
+    torznab_cat: 8000
+  - indexer_cat: "1075"
+    torznab_cat: 8000
+  - indexer_cat: "1105"
+    torznab_cat: 8000
+  - indexer_cat: "676"
+    torznab_cat: 8000
+  - indexer_cat: "1072"
+    torznab_cat: 8000
+  - indexer_cat: "166"
+    torznab_cat: 8000
+  - indexer_cat: "1078"
+    torznab_cat: 8000
+  - indexer_cat: "1074"
+    torznab_cat: 8000
+  - indexer_cat: "1076"
+    torznab_cat: 8000
+  - indexer_cat: "1266"
+    torznab_cat: 8000
+  - indexer_cat: "1267"
+    torznab_cat: 8000
+  - indexer_cat: "1268"
+    torznab_cat: 8000
+  - indexer_cat: "1269"
+    torznab_cat: 8000
+  - indexer_cat: "1270"
+    torznab_cat: 8000
+  - indexer_cat: "1277"
+    torznab_cat: 8000
+  - indexer_cat: "1271"
+    torznab_cat: 8000
+  - indexer_cat: "1272"
+    torznab_cat: 8000
+  - indexer_cat: "1273"
+    torznab_cat: 8000
+  - indexer_cat: "1274"
+    torznab_cat: 8000
+  - indexer_cat: "1275"
+    torznab_cat: 8000
+  - indexer_cat: "1276"
+    torznab_cat: 8000
+  - indexer_cat: "1103"
+    torznab_cat: 8000
+  - indexer_cat: "1114"
+    torznab_cat: 8000
+  - indexer_cat: "1113"
+    torznab_cat: 8000
+  - indexer_cat: "1115"
+    torznab_cat: 8000
+  - indexer_cat: "1129"
+    torznab_cat: 8000
+  - indexer_cat: "1111"
+    torznab_cat: 8000
+  - indexer_cat: "1116"
+    torznab_cat: 8000
+  - indexer_cat: "808"
+    torznab_cat: 8000
+  - indexer_cat: "1139"
+    torznab_cat: 8000
+  - indexer_cat: "988"
+    torznab_cat: 8000
+  - indexer_cat: "1073"
+    torznab_cat: 8000
+  - indexer_cat: "892"
+    torznab_cat: 8000
+  - indexer_cat: "91"
+    torznab_cat: 8000
+  - indexer_cat: "668"
+    torznab_cat: 8000
+  - indexer_cat: "1143"
+    torznab_cat: 8000
+  - indexer_cat: "802"
+    torznab_cat: 8000
+  - indexer_cat: "669"
+    torznab_cat: 8000
+  - indexer_cat: "400"
+    torznab_cat: 8000
+  - indexer_cat: "169"
+    torznab_cat: 8000
+  - indexer_cat: "94"
+    torznab_cat: 8000
+  - indexer_cat: "303"
+    torznab_cat: 8000
+  - indexer_cat: "92"
+    torznab_cat: 8000
+  - indexer_cat: "93"
+    torznab_cat: 8000
+  - indexer_cat: "1333"
+    torznab_cat: 8000
+  - indexer_cat: "95"
+    torznab_cat: 8000
+  - indexer_cat: "184"
+    torznab_cat: 8000
+  - indexer_cat: "1080"
+    torznab_cat: 8000
+  - indexer_cat: "180"
+    torznab_cat: 8000
