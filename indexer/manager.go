@@ -798,11 +798,15 @@ func (m *Manager) Search(ctx context.Context, indexerKey string, params SearchPa
 	}
 
 	indexerCategory := params.Category
+	indexerCategories := []string{}
+	setOnce := sync.Once{}
 	if catID, err := strconv.Atoi(params.Category); err == nil {
 		for _, mapping := range def.CategoryMappings {
 			if mapping.TorznabCategory == catID {
-				indexerCategory = mapping.IndexerCategory
-				break
+				setOnce.Do(func() {
+					indexerCategory = mapping.IndexerCategory
+				})
+				indexerCategories = append(indexerCategories, mapping.IndexerCategory)
 			}
 		}
 	}
@@ -810,13 +814,14 @@ func (m *Manager) Search(ctx context.Context, indexerKey string, params SearchPa
 	client := m.getClient(indexerKey)
 	useFlareSolverr := def.UserConfig["use_flaresolverr"] == "true"
 	tplData := struct {
-		Query    string
-		Config   map[string]string
-		Category string
-		IMDBID   string
-		Season   int
-		Episode  int
-	}{params.Query, def.UserConfig, indexerCategory, params.IMDBID, params.Season, params.Episode}
+		Query      string
+		Config     map[string]string
+		Category   string
+		Categories []string
+		IMDBID     string
+		Season     int
+		Episode    int
+	}{params.Query, def.UserConfig, indexerCategory, indexerCategories, params.IMDBID, params.Season, params.Episode}
 
 	var lastErr error
 	for _, urlTemplate := range urls {
