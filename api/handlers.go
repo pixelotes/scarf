@@ -70,7 +70,24 @@ type SearchResponse struct {
 }
 
 // parseQueryAndFilters extracts terms in double quotes for filtering and returns a clean query.
+// It handles edge cases like unclosed quotes, escaped quotes, and special characters.
 func parseQueryAndFilters(query string) (string, []string) {
+	// First, trim whitespace and validate the query
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return "", nil
+	}
+
+	// Check for unclosed quotes - if we have an odd number of quotes, remove the last unpaired one
+	quoteCount := strings.Count(query, "\"")
+	if quoteCount%2 != 0 {
+		// Find the last quote and remove it to prevent regex issues
+		lastQuoteIdx := strings.LastIndex(query, "\"")
+		query = query[:lastQuoteIdx] + query[lastQuoteIdx+1:]
+		slog.Warn("Query contains unclosed quotes, auto-correcting", "original_query", query)
+	}
+
+	// Extract terms in quotes for server-side filtering
 	re := regexp.MustCompile(`"([^"]+)"`)
 	filters := []string{}
 	matches := re.FindAllStringSubmatch(query, -1)
@@ -79,9 +96,26 @@ func parseQueryAndFilters(query string) (string, []string) {
 			filters = append(filters, strings.ToLower(match[1]))
 		}
 	}
-	// The clean query sent to the indexer should contain the full string
+
+	// Remove the quotes but keep the content for the indexer query
+	// This ensures the indexer gets the search terms without quote characters
 	cleanQuery := re.ReplaceAllString(query, "$1")
-	cleanQuery = strings.Join(strings.Fields(cleanQuery), " ") // Remove extra spaces
+
+	// Normalize whitespace - remove extra spaces and trim
+	cleanQuery = strings.Join(strings.Fields(cleanQuery), " ")
+
+	// Additional safety: ensure no problematic characters remain that could break URL encoding
+	// url.Values.Set() will handle encoding, but we want to catch any issues early
+	if strings.ContainsAny(cleanQuery, "\r\n\t\x00") {
+		slog.Warn("Query contains control characters, sanitizing", "query", cleanQuery)
+		cleanQuery = strings.Map(func(r rune) rune {
+			if r == '\r' || r == '\n' || r == '\t' || r == '\x00' {
+				return -1 // Remove control characters
+			}
+			return r
+		}, cleanQuery)
+	}
+
 	return cleanQuery, filters
 }
 

@@ -301,7 +301,9 @@ func (m *Manager) executeFlareSolverrRequest(ctx context.Context, payload map[st
 }
 
 // ensureFlareSolverrSession creates and warms up a FlareSolverr session if one doesn't exist.
+// Uses double-check locking to prevent race conditions when creating sessions.
 func (m *Manager) ensureFlareSolverrSession(ctx context.Context, def *Definition) error {
+	// Fast path: check if session exists with read lock
 	m.mu.RLock()
 	_, exists := m.flaresolverrSessions[def.Key]
 	m.mu.RUnlock()
@@ -310,10 +312,25 @@ func (m *Manager) ensureFlareSolverrSession(ctx context.Context, def *Definition
 		return nil // Session already exists
 	}
 
-	slog.Info("Creating new FlareSolverr session", "indexer", def.Name)
-	sessionID := uuid.New().String()
+	// Slow path: acquire write lock to create session
+	m.mu.Lock()
 
-	// 1. Create the session
+	// Double-check: another goroutine might have created the session while we were waiting for the lock
+	if _, exists := m.flaresolverrSessions[def.Key]; exists {
+		m.mu.Unlock()
+		slog.Debug("FlareSolverr session already created by another goroutine", "indexer", def.Name)
+		return nil
+	}
+
+	// Generate a unique session ID and reserve it in the map immediately to prevent other goroutines
+	// from attempting to create the same session
+	sessionID := uuid.New().String()
+	m.flaresolverrSessions[def.Key] = sessionID
+	m.mu.Unlock()
+
+	slog.Info("Creating new FlareSolverr session", "indexer", def.Name, "session_id", sessionID)
+
+	// 1. Create the session (this can take time, so we do it without holding the lock)
 	createPayload := map[string]interface{}{
 		"cmd":     "sessions.create",
 		"session": sessionID,
@@ -325,6 +342,10 @@ func (m *Manager) ensureFlareSolverrSession(ctx context.Context, def *Definition
 
 	_, err := m.executeFlareSolverrRequest(ctx, createPayload)
 	if err != nil {
+		// If creation fails, remove the session ID from the map so it can be retried
+		m.mu.Lock()
+		delete(m.flaresolverrSessions, def.Key)
+		m.mu.Unlock()
 		return fmt.Errorf("failed to create FlareSolverr session: %w", err)
 	}
 
@@ -337,14 +358,15 @@ func (m *Manager) ensureFlareSolverrSession(ctx context.Context, def *Definition
 	}
 	resp, err := m.executeFlareSolverrRequest(ctx, getPayload)
 	if err != nil {
+		// If warmup fails, remove the session ID from the map so it can be retried
+		m.mu.Lock()
+		delete(m.flaresolverrSessions, def.Key)
+		m.mu.Unlock()
 		return fmt.Errorf("failed to warm up FlareSolverr session: %w", err)
 	}
 	resp.Body.Close()
 
-	m.mu.Lock()
-	m.flaresolverrSessions[def.Key] = sessionID
-	m.mu.Unlock()
-
+	slog.Info("FlareSolverr session created and warmed up successfully", "indexer", def.Name, "session_id", sessionID)
 	return nil
 }
 
