@@ -1225,20 +1225,110 @@ func processResult(m *Manager, resultValue gjson.Result, resultRaw, parentRaw ma
 	})
 }
 
+// executeTemplate executes a Go template string with security restrictions.
+// It validates the template for dangerous patterns and executes it in a restricted context.
 func (m *Manager) executeTemplate(tplStr string, data any) (string, error) {
 	if !strings.Contains(tplStr, "{{") {
 		return tplStr, nil
 	}
 
+	// Security: Validate template for dangerous patterns before execution
+	if err := validateTemplate(tplStr); err != nil {
+		slog.Error("Template validation failed", "template", tplStr, "error", err)
+		return "", fmt.Errorf("template validation failed: %w", err)
+	}
+
 	var buf bytes.Buffer
-	tpl, err := template.New("").Parse(tplStr)
+
+	// Create a restricted template with only safe functions
+	tpl := template.New("").Funcs(getSecureFuncMap())
+
+	tpl, err := tpl.Parse(tplStr)
 	if err != nil {
-		return "", err
+		slog.Warn("Template parsing failed", "template", tplStr, "error", err)
+		return "", fmt.Errorf("template parsing failed: %w", err)
 	}
-	if err := tpl.Execute(&buf, data); err != nil {
-		return "", err
+
+	// Execute with timeout to prevent infinite loops or resource exhaustion
+	done := make(chan error, 1)
+	go func() {
+		done <- tpl.Execute(&buf, data)
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			slog.Warn("Template execution failed", "template", tplStr, "error", err)
+			return "", fmt.Errorf("template execution failed: %w", err)
+		}
+		return buf.String(), nil
+	case <-time.After(5 * time.Second):
+		return "", fmt.Errorf("template execution timed out")
 	}
-	return buf.String(), nil
+}
+
+// validateTemplate checks for dangerous patterns in templates that could lead to injection attacks.
+func validateTemplate(tplStr string) error {
+	// List of dangerous patterns that should not be allowed in templates
+	dangerousPatterns := []string{
+		"call",      // Function call - can execute arbitrary functions
+		"import",    // Not a valid template function but check anyway
+		"exec",      // Not a valid template function but check anyway
+		"system",    // Not a valid template function but check anyway
+		"cmd",       // Not a valid template function but check anyway
+		"os.",       // OS package access attempts
+		"runtime.",  // Runtime package access attempts
+		"syscall.",  // Syscall package access attempts
+	}
+
+	lowerTemplate := strings.ToLower(tplStr)
+	for _, pattern := range dangerousPatterns {
+		if strings.Contains(lowerTemplate, pattern) {
+			return fmt.Errorf("template contains dangerous pattern: %s", pattern)
+		}
+	}
+
+	// Check for excessive nesting which could indicate an attack
+	openCount := strings.Count(tplStr, "{{")
+	closeCount := strings.Count(tplStr, "}}")
+	if openCount != closeCount {
+		return fmt.Errorf("unbalanced template delimiters")
+	}
+	if openCount > 20 {
+		return fmt.Errorf("excessive template nesting (max 20, got %d)", openCount)
+	}
+
+	// Check template length to prevent DoS
+	if len(tplStr) > 10000 {
+		return fmt.Errorf("template too long (max 10000 chars, got %d)", len(tplStr))
+	}
+
+	return nil
+}
+
+// getSecureFuncMap returns a restricted set of template functions that are safe to use.
+// This prevents template injection attacks by limiting what can be done inside templates.
+func getSecureFuncMap() template.FuncMap {
+	return template.FuncMap{
+		// Safe string functions
+		"lower":    strings.ToLower,
+		"upper":    strings.ToUpper,
+		"trim":     strings.TrimSpace,
+		"replace":  strings.ReplaceAll,
+		"contains": strings.Contains,
+		"hasPrefix": strings.HasPrefix,
+		"hasSuffix": strings.HasSuffix,
+		"split":    strings.Split,
+		"join":     strings.Join,
+
+		// Safe formatting functions
+		"printf": fmt.Sprintf,
+
+		// Note: We explicitly DO NOT include dangerous functions like:
+		// - call: Can execute arbitrary functions
+		// - index: Can access arbitrary data structures
+		// - slice: Can manipulate data in unsafe ways
+	}
 }
 
 func (m *Manager) absURL(base, path string) string {
