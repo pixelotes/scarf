@@ -173,17 +173,20 @@ func (m *Manager) recordFailure(key string) {
 
 	if exists && bool(def.Enabled) && count >= m.maxFailures {
 		slog.Warn("Disabling indexer due to excessive failures within 24 hours", "indexer", key, "threshold", m.maxFailures)
-		// Run in a goroutine to prevent potential deadlocks.
-		go func() {
-			if err := m.ToggleIndexerEnabled(key, false); err != nil {
-				slog.Error("Failed to auto-disable indexer", "indexer", key, "error", err)
+		// Run in a goroutine to prevent blocking the caller
+		// Note: We don't need to pass 'key' as it's already captured by the closure
+		go func(indexerKey string) {
+			if err := m.ToggleIndexerEnabled(indexerKey, false); err != nil {
+				slog.Error("Failed to auto-disable indexer", "indexer", indexerKey, "error", err)
 			} else {
-				// Reset history only on successful disable.
+				// Reset failure history only on successful disable
+				// This is now safe because ToggleIndexerEnabled releases the lock before this executes
 				m.mu.Lock()
-				delete(m.failureTimestamps, key)
+				delete(m.failureTimestamps, indexerKey)
 				m.mu.Unlock()
+				slog.Info("Indexer auto-disabled and failure history cleared", "indexer", indexerKey)
 			}
-		}()
+		}(key)
 	}
 }
 
@@ -562,20 +565,25 @@ func (m *Manager) findIndexerFile(key string) string {
 }
 
 // ToggleIndexerEnabled updates the enabled status of an indexer and saves it to the definition file.
+// This function minimizes lock contention by only holding the mutex for in-memory operations.
 func (m *Manager) ToggleIndexerEnabled(key string, enabled bool) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	// Step 1: Acquire lock only to read the definition and find the file path
+	m.mu.RLock()
 	def, ok := m.Indexers[key]
 	if !ok {
+		m.mu.RUnlock()
 		return fmt.Errorf("indexer not found: %s", key)
 	}
-
+	// findIndexerFile only does os.Stat which is safe with RLock
 	filePath := m.findIndexerFile(key)
+	m.mu.RUnlock()
+
 	if filePath == "" {
 		return fmt.Errorf("definition file for %s not found", key)
 	}
 
+	// Step 2: Perform all I/O operations WITHOUT holding the lock
+	// This prevents blocking other goroutines during slow file operations
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("could not read definition file: %w", err)
@@ -601,7 +609,16 @@ func (m *Manager) ToggleIndexerEnabled(key string, enabled bool) error {
 		return fmt.Errorf("could not write definition file: %w", err)
 	}
 
-	def.Enabled = Bool(enabled)
+	// Step 3: Only acquire write lock to update the in-memory state
+	// This is very fast and minimizes lock contention
+	m.mu.Lock()
+	// Double-check the definition still exists (it might have been reloaded)
+	if def, ok := m.Indexers[key]; ok {
+		def.Enabled = Bool(enabled)
+	}
+	m.mu.Unlock()
+
+	slog.Info("Indexer enabled status updated", "indexer", key, "enabled", enabled)
 	return nil
 }
 
