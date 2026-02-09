@@ -12,10 +12,19 @@ import (
 	"go-indexer/indexer"
 )
 
-// CacheKey generates a standardized cache key for search results
-func GenerateCacheKey(indexerKey, query, category string) string {
-	// Always use the same key format regardless of search type
-	keyStr := fmt.Sprintf("search:%s:%s:%s", indexerKey, query, category)
+// GenerateCacheKey generates a standardized cache key for search results.
+// It includes all search parameters to prevent cache collisions between different searches.
+func GenerateCacheKey(indexerKey string, params indexer.SearchParams) string {
+	// Include ALL search parameters to prevent collisions
+	// For example: same query but different season/episode should have different cache keys
+	keyStr := fmt.Sprintf("search:%s:%s:%s:%s:%d:%d",
+		indexerKey,
+		params.Query,
+		params.Category,
+		params.IMDBID,
+		params.Season,
+		params.Episode,
+	)
 	hash := sha1.Sum([]byte(keyStr))
 	return fmt.Sprintf("%x", hash)
 }
@@ -34,21 +43,27 @@ type CachedSearchResult struct {
 	IndexerKey string                 `json:"indexer_key"`
 	Query      string                 `json:"query"`
 	Category   string                 `json:"category"`
+	IMDBID     string                 `json:"imdbid,omitempty"`
+	Season     int                    `json:"season,omitempty"`
+	Episode    int                    `json:"episode,omitempty"`
 }
 
-// CacheSearchResults stores search results in a unified format
-func CacheSearchResults(c *cache.Cache, indexerKey, query, category string, results []indexer.SearchResult, ttl time.Duration) {
+// CacheSearchResults stores search results in a unified format with all search parameters.
+func CacheSearchResults(c *cache.Cache, indexerKey string, params indexer.SearchParams, results []indexer.SearchResult, ttl time.Duration) {
 	if len(results) == 0 {
 		return // Don't cache empty results
 	}
 
-	cacheKey := GenerateCacheKey(indexerKey, query, category)
+	cacheKey := GenerateCacheKey(indexerKey, params)
 	cachedResult := CachedSearchResult{
 		Results:    results,
 		CachedAt:   time.Now(),
 		IndexerKey: indexerKey,
-		Query:      query,
-		Category:   category,
+		Query:      params.Query,
+		Category:   params.Category,
+		IMDBID:     params.IMDBID,
+		Season:     params.Season,
+		Episode:    params.Episode,
 	}
 
 	if jsonData, err := json.Marshal(cachedResult); err == nil {
@@ -56,9 +71,9 @@ func CacheSearchResults(c *cache.Cache, indexerKey, query, category string, resu
 	}
 }
 
-// GetCachedSearchResults retrieves cached search results
-func GetCachedSearchResults(c *cache.Cache, indexerKey, query, category string) ([]indexer.SearchResult, bool) {
-	cacheKey := GenerateCacheKey(indexerKey, query, category)
+// GetCachedSearchResults retrieves cached search results using full search parameters.
+func GetCachedSearchResults(c *cache.Cache, indexerKey string, params indexer.SearchParams) ([]indexer.SearchResult, bool) {
+	cacheKey := GenerateCacheKey(indexerKey, params)
 
 	if cachedData, found := c.Get(cacheKey); found {
 		var cachedResult CachedSearchResult
@@ -70,9 +85,9 @@ func GetCachedSearchResults(c *cache.Cache, indexerKey, query, category string) 
 }
 
 // CacheRSSFeed generates and caches an XML feed from search results (updated to use unified cache)
-func CacheRSSFeed(c *cache.Cache, indexerKey, query, category string, ttl time.Duration, def *indexer.Definition, results []indexer.SearchResult) {
+func CacheRSSFeed(c *cache.Cache, indexerKey string, params indexer.SearchParams, ttl time.Duration, def *indexer.Definition, results []indexer.SearchResult) {
 	// First cache the raw results using unified structure
-	CacheSearchResults(c, indexerKey, query, category, results, ttl)
+	CacheSearchResults(c, indexerKey, params, results, ttl)
 
 	// Then cache the RSS XML format for direct Torznab responses
 	feed := NewRSSFeed(def)
@@ -102,13 +117,13 @@ func CacheRSSFeed(c *cache.Cache, indexerKey, query, category string, ttl time.D
 	}
 
 	// Cache RSS XML with a different key suffix
-	rssKey := GenerateCacheKey(indexerKey, query, category) + ":rss"
+	rssKey := GenerateCacheKey(indexerKey, params) + ":rss"
 	finalOutput := []byte(xml.Header + string(output))
 	c.Set(rssKey, finalOutput, ttl)
 }
 
-// GetCachedRSSFeed retrieves cached RSS feed
-func GetCachedRSSFeed(c *cache.Cache, indexerKey, query, category string) ([]byte, bool) {
-	rssKey := GenerateCacheKey(indexerKey, query, category) + ":rss"
+// GetCachedRSSFeed retrieves cached RSS feed using full search parameters.
+func GetCachedRSSFeed(c *cache.Cache, indexerKey string, params indexer.SearchParams) ([]byte, bool) {
+	rssKey := GenerateCacheKey(indexerKey, params) + ":rss"
 	return c.Get(rssKey)
 }

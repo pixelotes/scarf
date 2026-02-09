@@ -425,7 +425,7 @@ func (h *APIHandler) searchAll(params indexer.SearchParams) ([]indexer.SearchRes
 			continue
 		}
 		if h.Cache != nil {
-			if cachedResults, found := GetCachedSearchResults(h.Cache, key, params.Query, params.Category); found {
+			if cachedResults, found := GetCachedSearchResults(h.Cache, key, params); found {
 				slog.Info("Aggregate search served from cache", "indexer", key, "query", params.Query)
 				allResults = append(allResults, cachedResults...)
 			} else {
@@ -463,7 +463,7 @@ func (h *APIHandler) searchAll(params indexer.SearchParams) ([]indexer.SearchRes
 
 					if len(liveResults) > 0 {
 						if h.Cache != nil {
-							CacheSearchResults(h.Cache, indexerKey, params.Query, params.Category, liveResults, h.CacheTTL)
+							CacheSearchResults(h.Cache, indexerKey, params, liveResults, h.CacheTTL)
 						}
 						resultsMutex.Lock()
 						allResults = append(allResults, liveResults...)
@@ -579,7 +579,7 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// This logic is for individual indexer searches
 		if h.Cache != nil {
-			if cachedResults, found := GetCachedSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category); found {
+			if cachedResults, found := GetCachedSearchResults(h.Cache, indexerKey, searchParams); found {
 				slog.Info("Web search request served from cache", "indexer", indexerKey, "query", searchParams.Query)
 				results = cachedResults
 				cacheHit = true
@@ -594,7 +594,7 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 			liveResults, searchErr := h.Manager.Search(r.Context(), indexerKey, searchParams)
 			err = searchErr
 			if err == nil && len(liveResults) > 0 && h.Cache != nil {
-				CacheSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category, liveResults, h.CacheTTL)
+				CacheSearchResults(h.Cache, indexerKey, searchParams, liveResults, h.CacheTTL)
 			}
 			results = liveResults
 		}
@@ -959,7 +959,7 @@ func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexe
 
 		if h.Cache != nil {
 			// Check if we have cached RSS XML first
-			if cachedXML, found := GetCachedRSSFeed(h.Cache, indexerKey, searchParams.Query, searchParams.Category); found {
+			if cachedXML, found := GetCachedRSSFeed(h.Cache, indexerKey, searchParams); found {
 				slog.Info("Torznab request served from RSS cache", "indexer", indexerKey, "query", searchParams.Query)
 				w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 				w.Header().Set("X-Cache", "HIT")
@@ -968,7 +968,7 @@ func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexe
 			}
 
 			// Check unified cache for search results
-			if cachedResults, found := GetCachedSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category); found {
+			if cachedResults, found := GetCachedSearchResults(h.Cache, indexerKey, searchParams); found {
 				slog.Info("Torznab request served from unified cache", "indexer", indexerKey, "query", searchParams.Query)
 				results = cachedResults
 			}
@@ -985,7 +985,7 @@ func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexe
 			// Cache the results
 			if len(results) > 0 {
 				if h.Cache != nil {
-					CacheSearchResults(h.Cache, indexerKey, searchParams.Query, searchParams.Category, results, h.CacheTTL)
+					CacheSearchResults(h.Cache, indexerKey, searchParams, results, h.CacheTTL)
 				}
 			}
 		}
