@@ -41,6 +41,7 @@ type APIHandler struct {
 	indexerHits           map[string]int64
 	recentSearches        []string
 	statsMutex            sync.Mutex
+	cleanupStop           chan bool
 }
 
 // Represents the stats object
@@ -170,7 +171,7 @@ func (h *APIHandler) AppStatsHandler(w http.ResponseWriter, r *http.Request) {
 
 // NewAPIHandler creates a new API handler with initialized rate limiters
 func NewAPIHandler(manager *indexer.Manager, cache *cache.Cache, cacheTTL, latestCacheTTL time.Duration, flexgetKey, uiPassword string, defaultLimit, maxConcurrent int) *APIHandler {
-	return &APIHandler{
+	h := &APIHandler{
 		Manager:               manager,
 		Cache:                 cache,
 		CacheTTL:              cacheTTL,
@@ -183,7 +184,13 @@ func NewAPIHandler(manager *indexer.Manager, cache *cache.Cache, cacheTTL, lates
 		MaxConcurrentSearches: maxConcurrent,
 		indexerHits:           make(map[string]int64),
 		recentSearches:        make([]string, 0, 10),
+		cleanupStop:           make(chan bool),
 	}
+
+	// Start background cleanup of unused rate limiters
+	go h.rateLimiterCleanup()
+
+	return h
 }
 
 // getRateLimiter returns a rate limiter for the given indexer
@@ -202,6 +209,36 @@ func (h *APIHandler) getRateLimiter(indexerKey string) *rate.Limiter {
 		h.rlMutex.Unlock()
 	}
 	return limiter
+}
+
+// rateLimiterCleanup periodically removes rate limiters for disabled or removed indexers
+func (h *APIHandler) rateLimiterCleanup() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			h.rlMutex.Lock()
+			allIndexers := h.Manager.GetAllIndexers()
+
+			// Remove limiters for indexers that no longer exist or are disabled
+			for key := range h.rateLimiters {
+				if def, ok := allIndexers[key]; !ok || !bool(def.Enabled) {
+					delete(h.rateLimiters, key)
+					slog.Debug("Cleaned up rate limiter for indexer", "indexer", key)
+				}
+			}
+			h.rlMutex.Unlock()
+		case <-h.cleanupStop:
+			return
+		}
+	}
+}
+
+// Close stops the background cleanup goroutine
+func (h *APIHandler) Close() {
+	close(h.cleanupStop)
 }
 
 // HealthCheck returns enhanced health status of the application
@@ -412,7 +449,7 @@ func (h *APIHandler) ToggleIndexer(w http.ResponseWriter, r *http.Request) {
 }
 
 // searchAll performs a concurrent search across all indexers with unified cache support
-func (h *APIHandler) searchAll(params indexer.SearchParams) ([]indexer.SearchResult, error) {
+func (h *APIHandler) searchAll(ctx context.Context, params indexer.SearchParams) ([]indexer.SearchResult, error) {
 	slog.Info("Starting aggregate search", "query", params.Query, "category", params.Category)
 	allIndexers := h.Manager.GetAllIndexers()
 	var cacheMisses []string
@@ -441,22 +478,41 @@ func (h *APIHandler) searchAll(params indexer.SearchParams) ([]indexer.SearchRes
 		var wg sync.WaitGroup
 		workerJobs := make(chan string, len(cacheMisses))
 
+		// Create a cancellable context for workers
+		workerCtx, cancelWorkers := context.WithCancel(ctx)
+		defer cancelWorkers()
+
 		for i := 0; i < h.MaxConcurrentSearches; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				for indexerKey := range workerJobs {
+					// Check if parent context was cancelled
+					select {
+					case <-workerCtx.Done():
+						slog.Debug("Worker cancelled due to context", "indexer", indexerKey)
+						return
+					default:
+					}
+
 					slog.Info("Aggregate search (cache miss)", "indexer", indexerKey, "query", params.Query)
 					limiter := h.getRateLimiter(indexerKey)
 					if !limiter.Allow() {
 						slog.Warn("Rate limit exceeded", "indexer", indexerKey)
 						continue
 					}
-					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-					liveResults, err := h.Manager.Search(ctx, indexerKey, params)
+
+					// Use parent context with timeout for this specific search
+					searchCtx, cancel := context.WithTimeout(workerCtx, 10*time.Second)
+					liveResults, err := h.Manager.Search(searchCtx, indexerKey, params)
 					cancel()
 
 					if err != nil {
+						// Check if error is due to context cancellation
+						if workerCtx.Err() != nil {
+							slog.Debug("Search cancelled", "indexer", indexerKey)
+							return
+						}
 						slog.Warn("Search failed for indexer", "indexer", indexerKey, "query", params.Query, "error", err)
 						continue
 					}
@@ -474,11 +530,22 @@ func (h *APIHandler) searchAll(params indexer.SearchParams) ([]indexer.SearchRes
 		}
 
 		for _, key := range cacheMisses {
-			workerJobs <- key
+			select {
+			case workerJobs <- key:
+			case <-workerCtx.Done():
+				// Context cancelled, stop sending jobs
+				slog.Info("Aggregate search cancelled before completion")
+				break
+			}
 		}
 		close(workerJobs)
 
 		wg.Wait()
+
+		// Check if we were cancelled
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 	}
 
 	// Step 3: De-duplicate and sort the final combined results.
@@ -574,7 +641,7 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 	var cacheHit bool
 
 	if indexerKey == "all" {
-		results, err = h.searchAll(searchParams)
+		results, err = h.searchAll(r.Context(), searchParams)
 		cacheHit = false // We report MISS on the aggregate even if sub-queries hit cache.
 	} else {
 		// This logic is for individual indexer searches
@@ -932,7 +999,7 @@ func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexe
 
 	if indexerKey == "all" {
 		slog.Info("Torznab request", "indexer", "all", "query", searchParams.Query, "category", searchParams.Category)
-		results, err = h.searchAll(searchParams)
+		results, err = h.searchAll(r.Context(), searchParams)
 		if err != nil {
 			slog.Error("Torznab search failed for all indexers", "query", searchParams.Query, "error", err)
 			http.Error(w, "Failed to search indexers.", http.StatusInternalServerError)

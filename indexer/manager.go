@@ -45,6 +45,43 @@ var (
 	}
 )
 
+// Response body size limits to prevent DoS attacks via memory exhaustion
+const (
+	// MaxJSONResponseSize is the maximum size for JSON API responses (50MB)
+	// This handles large search results from indexers
+	MaxJSONResponseSize = 50 * 1024 * 1024
+
+	// MaxHTMLResponseSize is the maximum size for HTML pages (10MB)
+	// This handles large HTML responses from scrapers
+	MaxHTMLResponseSize = 10 * 1024 * 1024
+
+	// MaxLoginResponseSize is the maximum size for login verification responses (1MB)
+	MaxLoginResponseSize = 1 * 1024 * 1024
+
+	// MaxErrorResponseSize is the maximum size for error response logging (100KB)
+	MaxErrorResponseSize = 100 * 1024
+
+	// MaxLogResponseSize is the maximum size for debug logging responses (100KB)
+	MaxLogResponseSize = 100 * 1024
+)
+
+// limitedReadAll reads from a reader with a size limit to prevent DoS attacks.
+// If the content exceeds the limit, it returns an error instead of consuming unlimited memory.
+func limitedReadAll(reader io.Reader, maxBytes int64) ([]byte, error) {
+	limitedReader := io.LimitReader(reader, maxBytes+1) // +1 to detect overflow
+	data, err := io.ReadAll(limitedReader)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if we hit the limit
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("response body exceeds maximum size of %d bytes", maxBytes)
+	}
+
+	return data, nil
+}
+
 // Manager holds all loaded indexer definitions and authenticated clients
 type Manager struct {
 	Indexers             map[string]*Definition
@@ -246,8 +283,10 @@ func (m *Manager) executeFlareSolverrRequest(ctx context.Context, payload map[st
 		Message string `json:"message"`
 	}
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	// Use limited read to prevent DoS attacks via large responses
+	bodyBytes, err := limitedReadAll(resp.Body, MaxHTMLResponseSize)
 	if err != nil {
+		resp.Body.Close()
 		return nil, fmt.Errorf("failed to read FlareSolverr response body: %w", err)
 	}
 	resp.Body.Close()
@@ -736,7 +775,13 @@ func (m *Manager) authenticate(def *Definition) error {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	// Use limited read for login verification to prevent DoS
+	body, err := limitedReadAll(resp.Body, MaxLoginResponseSize)
+	if err != nil {
+		slog.Warn("Failed to read login response body", "indexer", def.Name, "error", err)
+		return fmt.Errorf("failed to read login response: %w", err)
+	}
+
 	if def.Login.SuccessCheck.Contains != "" && !strings.Contains(string(body), def.Login.SuccessCheck.Contains) {
 		slog.Warn("Login failed, response did not contain success string", "indexer", def.Name, "expected", def.Login.SuccessCheck.Contains)
 		return fmt.Errorf("login success check failed; did not find '%s' in response", def.Login.SuccessCheck.Contains)
@@ -954,12 +999,17 @@ func (m *Manager) Search(ctx context.Context, indexerKey string, params SearchPa
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
+			// Use limited read for error logging to prevent DoS
+			body, err := limitedReadAll(resp.Body, MaxErrorResponseSize)
+			bodyStr := "<failed to read>"
+			if err == nil {
+				bodyStr = string(body)
+			}
 			slog.Warn("Search failed with non-200 status",
 				"indexer", def.Name,
 				"url", baseURL,
 				"status", resp.Status,
-				"body", string(body),
+				"body", bodyStr,
 			)
 			lastErr = fmt.Errorf("search failed for %s, status: %s", baseURL, resp.Status)
 			continue
@@ -1013,8 +1063,12 @@ func (m *Manager) parseHTMLResults(ctx context.Context, body io.Reader, def *Def
 	var wg sync.WaitGroup
 	resultsChan := make(chan SearchResult, 100)
 
-	// Use a buffered channel to act as a semaphore, limiting concurrent fetches to 10
+	// Use a buffered channel to act as a semaphore, limiting concurrent fetches
+	// Use a reasonable default if MaxConcurrentSearches is not set
 	concurrencyLimit := 10
+	if cfg, err := config.GetConfig(); err == nil && cfg.MaxConcurrentSearches > 0 {
+		concurrencyLimit = cfg.MaxConcurrentSearches
+	}
 	semaphore := make(chan struct{}, concurrencyLimit)
 
 	doc.Find(def.Search.Results.RowsSelector).Each(func(i int, s *goquery.Selection) {
@@ -1137,9 +1191,10 @@ func (m *Manager) fetchDownloadLinkFromDetails(ctx context.Context, detailURL st
 }
 
 func (m *Manager) parseJSONResults(body io.Reader, def *Definition) ([]SearchResult, error) {
-	data, err := io.ReadAll(body)
+	// Use limited read for JSON responses to prevent DoS via large payloads
+	data, err := limitedReadAll(body, MaxJSONResponseSize)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read JSON response: %w", err)
 	}
 	jsonBody := string(data)
 	fields := def.Search.Results.Fields

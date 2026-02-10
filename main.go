@@ -293,6 +293,7 @@ func main() {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(middleware.Compress(5)) // Enable gzip compression (level 5 = balanced speed/compression)
 	r.Use(middleware.Timeout(cfg.RequestTimeout))
 
 	// Security headers middleware
@@ -466,6 +467,10 @@ func startServer(server *http.Server, idxManager *indexer.Manager, appCache *cac
 	} else {
 		slog.Info("Server shutdown completed")
 	}
+
+	// Close API handler (stops rate limiter cleanup)
+	apiHandler.Close()
+	slog.Info("API handler closed")
 
 	// Close indexer manager
 	if err := idxManager.Close(); err != nil {

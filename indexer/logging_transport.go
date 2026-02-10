@@ -33,13 +33,18 @@ func (lrt *loggingRoundTripper) RoundTrip(req *http.Request) (*http.Response, er
 	}
 
 	// To log the response body, we must read it and then replace it.
-	bodyBytes, readErr := io.ReadAll(resp.Body)
+	// Use limited read to prevent DoS attacks via large responses in debug mode
+	bodyBytes, readErr := limitedReadAll(resp.Body, MaxLogResponseSize)
 	if readErr != nil {
 		slog.Warn("Failed to read response body for logging", "error", readErr)
+		// If we can't read the body, close it and create an empty one
+		resp.Body.Close()
+		resp.Body = io.NopCloser(bytes.NewBuffer([]byte("<body too large or read failed>")))
+	} else {
+		// After reading, the original body is empty. We replace it with a new reader.
+		resp.Body.Close()
+		resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 	}
-	// After reading, the original body is empty. We replace it with a new reader.
-	resp.Body.Close()
-	resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
 	// Dump the full response for debugging.
 	respDump, dumpErr := httputil.DumpResponse(resp, true)
