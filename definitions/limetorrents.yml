@@ -1,0 +1,83 @@
+key: limetorrents
+name: LimeTorrents
+description: LimeTorrents is a Public general torrent index with mostly verified torrents
+type: public
+enabled: "false"
+language: en-US
+schedule: '@hourly'
+settings:
+  - name: downloadlink
+    type: select
+    label: Download link
+    default: 'magnet:'
+    options:
+      http://itorrents.org/: iTorrents.org
+      'magnet:': magnet
+  - name: downloadlink2
+    type: select
+    label: Download link (fallback)
+    default: http://itorrents.org/
+    options:
+      http://itorrents.org/: iTorrents.org
+      'magnet:': magnet
+  - name: sort
+    type: select
+    label: Sort requested from site
+    default: date
+    options:
+      date: created
+      seeds: seeders
+      size: size
+  - name: use_flaresolverr
+    type: checkbox
+    label: Use FlareSolverr
+    default: 'false'
+search:
+  type: html
+  urls:
+    - "https://limetorrent.net/{{if .Query}}search?q={{.Query}}{{else}}latest100{{end}}"
+  params: {}
+  results:
+    rows_selector: .table2 > tbody > tr[bgcolor]
+    fields:
+      title:
+        selector: div.tt-name > a[href^="/"]
+      details_url:
+        selector: div.tt-name > a[href^="/"]@href
+      size:
+        selector: td:nth-child(3)
+      seeders:
+        selector: .tdseed
+      leechers:
+        selector: .tdleech
+      publish_date:
+        selector: td:nth-child(2)
+    download_selector: a.csprite_dltorrent[href^="magnet:"]@href
+  modes:
+    search:
+      - q
+    tv-search:
+      - q
+      - season
+      - ep
+    movie-search:
+      - q
+    music-search:
+      - q
+    book-search:
+      - q
+category_mappings:
+  - indexer_cat: TV shows
+    torznab_cat: 5000
+  - indexer_cat: Movies
+    torznab_cat: 2000
+  - indexer_cat: Music
+    torznab_cat: 3000
+  - indexer_cat: Games
+    torznab_cat: 1000
+  - indexer_cat: Applications
+    torznab_cat: 4010
+  - indexer_cat: Other
+    torznab_cat: 8000
+  - indexer_cat: Anime
+    torznab_cat: 5080

@@ -14,7 +14,7 @@ settings:
 search:
   type: "json"
   urls:
-    - "https://yts.mx/api/v2/list_movies.json"
+    - "https://yts.lu/api/v2/list_movies.json"
   params:
     query_term: "{{.Query}}"
     limit: 50

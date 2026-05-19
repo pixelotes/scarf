@@ -15,7 +15,7 @@ search:
   type: html
   urls:
     # Corrected the URL to handle queries properly
-    - "https://13mag.net/search?q={{.Query}}"
+    - "https://16mag.net/search?q={{.Query}}"
   params: {}
   results:
     rows_selector: "table > tbody > tr:has(td)"

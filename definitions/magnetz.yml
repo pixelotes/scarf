@@ -1,0 +1,85 @@
+key: magnetz
+name: Magnetz
+description: Magnetz is a Public torrent meta-search engine
+type: public
+enabled: "false"
+language: en-US
+schedule: '@hourly'
+settings:
+  - name: sort
+    type: select
+    label: Sort requested from site
+    default: date
+    options:
+      date: created
+      seeders: seeders
+      size: size
+  - name: use_flaresolverr
+    type: checkbox
+    label: Use FlareSolverr
+    default: 'false'
+search:
+  type: html
+  urls:
+    - https://magnetz.eu/search
+  params:
+    query: "{{if .Query}}{{.Query}}{{else}}2026{{end}}"
+    sort: "{{.Config.sort}}"
+  results:
+    rows_selector: article.result-card
+    fields:
+      title:
+        selector: a
+      details_url:
+        selector: a@href
+      size:
+        selector: span.meta-chip--size
+      seeders:
+        selector: span.meta-chip--seeders
+      leechers:
+        selector: span.meta-chip--leechers
+    download_selector: a[href^="magnet:?xt="]@href
+  modes:
+    search:
+      - q
+    tv-search:
+      - q
+      - season
+      - ep
+    movie-search:
+      - q
+    music-search:
+      - q
+    book-search:
+      - q
+category_mappings:
+  - indexer_cat: Other
+    torznab_cat: 8000
+  - indexer_cat: Movie
+    torznab_cat: 2000
+  - indexer_cat: Music
+    torznab_cat: 3000
+  - indexer_cat: TV
+    torznab_cat: 5000
+  - indexer_cat: XXX
+    torznab_cat: 6000
+  - indexer_cat: eBook
+    torznab_cat: 7000
+  - indexer_cat: App
+    torznab_cat: 4000
+  - indexer_cat: Game
+    torznab_cat: 1000
+  - indexer_cat: Anime
+    torznab_cat: 5080
+  - indexer_cat: ABook
+    torznab_cat: 3030
+  - indexer_cat: Banned
+    torznab_cat: 8000
+  - indexer_cat: Bookware
+    torznab_cat: 8000
+  - indexer_cat: MusicVideo
+    torznab_cat: 3020
+  - indexer_cat: Sports
+    torznab_cat: 5070
+  - indexer_cat: Font
+    torznab_cat: 8000

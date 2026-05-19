@@ -14,7 +14,8 @@ settings:
 search:
   type: html
   urls:
-    - https://torrenttip190.top/search?q={{ if.Query}}{{.Query}}{{ else }}{{ .Today.Year }}{{ end }}&sort=time
+    - https://torrenttip226.top/search?q={{ if.Query}}{{.Query}}{{ else }}{{ .Today.Year }}{{ end }}&sort=time
+    - https://torrenttip227.top/search?q={{ if.Query}}{{.Query}}{{ else }}{{ .Today.Year }}{{ end }}&sort=time
   params: {}
   results:
     rows_selector: ul.page-list > li:has(a[href$=".html"][title])

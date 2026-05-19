@@ -30,7 +30,7 @@ login:
     uid: '{{ .Config.username }}'
     pwd: '{{ .Config.password }}'
   success_check:
-    contains: a[href="logout.php"]
+    contains: logout.php
 search:
   type: html
   urls:

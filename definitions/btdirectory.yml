@@ -14,7 +14,7 @@ settings:
 search:
   type: html
   urls:
-    - "https://btmulu.live/{{ if .Query }}search.html{{ else }}search-create.html{{ end }}"
+    - "https://www.btmulu.quest/{{ if .Query }}search.html{{ else }}search-create.html{{ end }}"
   params:
     name: "{{.Query}}"
   results:
