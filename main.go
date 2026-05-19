@@ -363,7 +363,7 @@ func main() {
 			ReadTimeout:  cfg.RequestTimeout,
 			WriteTimeout: cfg.RequestTimeout * 2,
 		}
-		startServer(server, idxManager, appCache)
+		startServer(server, idxManager, appCache, apiHandler)
 		return
 	}
 
@@ -425,11 +425,11 @@ func main() {
 		ReadTimeout:  cfg.RequestTimeout,
 		WriteTimeout: cfg.RequestTimeout * 2,
 	}
-	startServer(server, idxManager, appCache)
+	startServer(server, idxManager, appCache, apiHandler)
 }
 
 // startServer handles graceful shutdown with enhanced cleanup
-func startServer(server *http.Server, idxManager *indexer.Manager, appCache *cache.Cache) {
+func startServer(server *http.Server, idxManager *indexer.Manager, appCache *cache.Cache, apiHandler *api.APIHandler) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 

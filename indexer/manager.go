@@ -609,7 +609,7 @@ func (m *Manager) findIndexerFile(key string) string {
 func (m *Manager) ToggleIndexerEnabled(key string, enabled bool) error {
 	// Step 1: Acquire lock only to read the definition and find the file path
 	m.mu.RLock()
-	def, ok := m.Indexers[key]
+	_, ok := m.Indexers[key]
 	if !ok {
 		m.mu.RUnlock()
 		return fmt.Errorf("indexer not found: %s", key)
