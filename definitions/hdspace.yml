@@ -6,6 +6,8 @@ type: private
 enabled: "false"
 language: en-US
 schedule: '@hourly'
+health_check:
+  requires_auth: true
 settings:
   - name: username
     type: text

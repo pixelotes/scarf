@@ -6,6 +6,8 @@ type: public
 enabled: "false"
 language: en-US
 schedule: '@hourly'
+health_check:
+  query: "frieren"  # popular anime — present on every active anime tracker
 settings:
   - name: prefer_magnet_links
     type: checkbox
@@ -85,10 +87,15 @@ search:
     - https://nyaa.si/?f=0&c=0_0&q={{.Query}}&s=seeders&o=desc
   params: {}
   results:
-    rows_selector: div.table-responsive > table > tbody > tr.success
+    # Nyaa marks rows by uploader trust: tr.default (regular), tr.success
+    # (trusted, green), tr.danger (remake, red). Match all three.
+    rows_selector: "div.table-responsive > table > tbody > tr.default, div.table-responsive > table > tbody > tr.success, div.table-responsive > table > tbody > tr.danger"
     fields:
       title:
-        selector: tr.success td:nth-child(2) > a
+        # Don't repeat tr.* — `s` is already the matched row; that prefix would
+        # try to find a nested <tr>, which never matches, leaving title empty
+        # and causing all rows to be silently dropped.
+        selector: "td:nth-child(2) > a:not(.comments)"
       download_url:
         selector: 'td:nth-child(3) a[href^="magnet:?"]@href'
       size:

@@ -1,0 +1,39 @@
+key: elitetorrent-wf
+name: Elitetorrent-wf
+description: Elitetorrent-wf is a SPANISH Public tracker for MOVIES / TV
+type: public
+enabled: "false"
+language: es-ES
+schedule: '@hourly'
+settings:
+  - name: use_flaresolverr
+    type: checkbox
+    label: Use FlareSolverr
+    default: 'false'
+search:
+  type: html
+  urls:
+    - "https://www.elitetorrent.wf/"
+  params:
+    s: "{{.Query}}"
+    x: "0"
+    y: "0"
+  results:
+    rows_selector: '#principal .miniboxs-ficha li:has(span:nth-of-type(2))'
+    fields:
+      title:
+        selector: div.imagen > a@title
+      details_url:
+        selector: .meta a@href
+      download_url:
+        selector: .meta a@href
+    download_selector: a[href^="magnet:?"]@href
+  modes:
+    search:
+      - q
+    tv-search:
+      - q
+      - season
+      - ep
+    movie-search:
+      - q

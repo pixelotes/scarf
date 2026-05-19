@@ -6,6 +6,8 @@ type: "public"
 enabled: "false"
 language: "en-US"
 schedule: "@every 2h"
+health_check:
+  query: "batman"  # query_term searches titles only; "1080p" doesn't match
 settings:
   - name: use_flaresolverr
     type: checkbox
@@ -14,7 +16,10 @@ settings:
 search:
   type: "json"
   urls:
-    - "https://yts.lu/api/v2/list_movies.json"
+    # yts.mx is DNS-dead and yts.lu redirects /api/* to its HTML homepage.
+    # The active API (referenced in yts.am's own status_message) lives at
+    # movies-api.accel.li — plain JSON, no Cloudflare challenge.
+    - "https://movies-api.accel.li/api/v2/list_movies.json"
   params:
     query_term: "{{.Query}}"
     limit: 50

@@ -106,6 +106,24 @@ func check(mgr *indexer.Manager, def *indexer.Definition) (r Result) {
 		query = defaultQuery
 	}
 
+	// Manager.Search rejects disabled indexers, but the check tool must probe
+	// every definition regardless. Flip the in-memory flag (the process is
+	// short-lived; nothing persists).
+	def.Enabled = true
+
+	// Apply form defaults to UserConfig. Scarf only reads runtime flags
+	// (e.g. use_flaresolverr) from UserConfig, not from the form default,
+	// so without this step trackers that need FlareSolverr by default would
+	// silently skip it during checks.
+	if def.UserConfig == nil {
+		def.UserConfig = map[string]string{}
+	}
+	for _, s := range def.Settings {
+		if _, set := def.UserConfig[s.Name]; !set && s.Default != "" {
+			def.UserConfig[s.Name] = s.Default
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
 

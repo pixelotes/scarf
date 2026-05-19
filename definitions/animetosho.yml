@@ -6,6 +6,8 @@ type: "public"
 enabled: "false"
 language: "en-US"
 schedule: "@hourly"
+health_check:
+  query: "frieren"
 settings:
   - name: use_flaresolverr
     type: checkbox

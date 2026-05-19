@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -41,21 +42,24 @@ func (lrt *loggingRoundTripper) RoundTrip(req *http.Request) (*http.Response, er
 		return nil, err
 	}
 
-	// To log the response body, we must read it and then replace it.
-	// Use limited read to prevent DoS attacks via large responses in debug mode
+	// Only buffer & dump the response body when DEBUG logging is on. Otherwise
+	// the limitedReadAll below would truncate any response over 100KB and
+	// replace it with a placeholder string, breaking real searches that
+	// return larger pages (e.g. Nyaa.si ~119KB).
+	if !slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+		return resp, nil
+	}
+
 	bodyBytes, readErr := limitedReadAll(resp.Body, MaxLogResponseSize)
 	if readErr != nil {
 		slog.Warn("Failed to read response body for logging", "error", readErr)
-		// If we can't read the body, close it and create an empty one
 		resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewBuffer([]byte("<body too large or read failed>")))
 	} else {
-		// After reading, the original body is empty. We replace it with a new reader.
 		resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 	}
 
-	// Dump the full response for debugging.
 	respDump, dumpErr := httputil.DumpResponse(resp, true)
 	if dumpErr != nil {
 		slog.Warn("Failed to dump response", "error", dumpErr)

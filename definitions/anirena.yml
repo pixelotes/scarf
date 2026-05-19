@@ -6,6 +6,8 @@ type: "public"
 enabled: "false"
 language: en-US
 schedule: '@every 1h'
+health_check:
+  query: "frieren"
 settings:
   - name: use_flaresolverr
     type: checkbox
@@ -14,25 +16,28 @@ settings:
 search:
   type: html
   urls:
-    - https://www.anirena.com/?s={{.Query}}
+    - "https://www.anirena.com/?q={{.Query}}"
   params: {}
   results:
-    rows_selector: table tbody tr:has(td.torrents_small_type_data1)
+    # AniRena was rewritten — old `torrents_small_*` classes are gone. New
+    # layout: single table.tl-table; meta (date/size/seeders/leechers) lives
+    # inside td.col-name via spans, not separate columns.
+    rows_selector: "table.tl-table tr[data-torrent-id]"
     fields:
       title:
-        selector: .torrents_small_info_data1 div
+        selector: "a.tl-torrent-name"
       details_url:
-        selector: ''
+        selector: "a.tl-torrent-name@href"
       download_url:
-        selector: .torrents_small_info_data2 a[title="Download Torrent"]@href
+        selector: 'a[title="Download Torrent"]@href'
       size:
-        selector: .torrents_small_size_data1
+        selector: ".tl-meta-size"
       seeders:
-        selector: .torrents_small_seeders_data1 big
+        selector: ".tl-se"
       leechers:
-        selector: .torrents_small_leechers_data1 big
+        selector: ".tl-le"
       publish_date:
-        selector: ''
+        selector: ".tl-meta-date span[data-utc]"
   modes:
     search: [q]
     tv-search: [q, season, ep]

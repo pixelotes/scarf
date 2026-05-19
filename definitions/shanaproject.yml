@@ -6,6 +6,8 @@ type: "public"
 enabled: "false"
 language: "en-US"
 schedule: "@hourly"
+health_check:
+  query: "frieren"
 settings:
   - name: use_flaresolverr
     type: checkbox
@@ -21,7 +23,11 @@ search:
     sort: "date"
     dir: "Descending"
   results:
-    rows_selector: "div.grid_12 > div[id^='rel']"
+    # Each result is a .release_block div with id="rel{N}"; the expanded
+    # detail (full title, date) lives in a sibling div id="rel{N}x" that
+    # HTML5 parsers nest into the same .release_block.
+    # Tighten with .release_block to avoid iterating *btn and *x divs (152→50).
+    rows_selector: "div.grid_12 > div[id^='rel'].release_block"
     fields:
       title:
         selector: "div.release_leftover > div.release_text_contents"
@@ -29,12 +35,16 @@ search:
         selector: "a[href^='/download/']@href"
       size:
         selector: "div.release_size"
+      # First .release_20 is "Quality: 1080p"; the date is the last one
+      # (class adds .release_last).
       publish_date:
-        selector: "div.release_20"
+        selector: "div.release_20.release_last"
+      # ShanaProject doesn't expose swarm stats. Hardcode so downstream
+      # min-seeder filters don't drop these results.
       seeders:
-        selector: "1"
+        text: "1"
       leechers:
-        selector: "1"
+        text: "0"
   modes:
     search: [q]
     tv-search: [q, season, ep]

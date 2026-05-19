@@ -6,6 +6,8 @@ type: "public"
 enabled: "false"
 language: "es-ES"
 schedule: "@hourly"
+health_check:
+  query: "naruto"  # frieren no tiene fansub ES extendido aquí
 settings:
   - name: use_flaresolverr
     type: checkbox

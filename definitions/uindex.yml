@@ -17,22 +17,24 @@ search:
     - https://uindex.org/search.php?search={{.Query}}
   params: {}
   results:
-    rows_selector: table.maintable > tbody > tr:has(a[href^="magnet:?xt="])
+    # Site rewrote markup: table.maintable → table.sr-table, td:nth-child(N)
+    # → semantic td.sr-col-* classes. Selectors below use the new classes.
+    rows_selector: 'table.sr-table > tbody > tr:has(a[href^="magnet:?xt="])'
     fields:
       title:
-        selector: a[href^="/details.php?id="]
+        selector: 'a[href^="/details.php?id="]'
       details_url:
-        selector: a[href^="/details.php?id="]@href
+        selector: 'a[href^="/details.php?id="]@href'
       download_url:
-        selector: a[href^="magnet:?xt="]@href
+        selector: 'a[href^="magnet:?xt="]@href'
       size:
-        selector: td:nth-child(3)
+        selector: td.sr-col-size
       seeders:
-        selector: td:nth-child(4)
+        selector: td.sr-col-seeders
       leechers:
-        selector: td:nth-child(5)
+        selector: td.sr-col-leechers
       publish_date:
-        selector: div.sub
+        selector: td.sr-col-uploaded
   modes:
     search: [q]
     tv-search: [q, season, ep]

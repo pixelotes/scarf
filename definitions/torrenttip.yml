@@ -14,28 +14,35 @@ settings:
 search:
   type: html
   urls:
-    - https://torrenttip226.top/search?q={{ if.Query}}{{.Query}}{{ else }}{{ .Today.Year }}{{ end }}&sort=time
-    - https://torrenttip227.top/search?q={{ if.Query}}{{.Query}}{{ else }}{{ .Today.Year }}{{ end }}&sort=time
+    # Domain rotates (torrenttipNNN.top); list a few known-good as fallbacks.
+    # The bare {{if.Query}} (no space) of the previous version was a syntax
+    # error, .Today.Year doesn't exist in scarf either — both fixed below.
+    - "https://torrenttip226.top/search?q={{if .Query}}{{.Query}}{{else}}2026{{end}}&sort=time"
+    - "https://torrenttip227.top/search?q={{if .Query}}{{.Query}}{{else}}2026{{end}}&sort=time"
   params: {}
   results:
-    rows_selector: ul.page-list > li:has(a[href$=".html"][title])
+    # Site rewrote in Tailwind. Old ul.page-list is gone; each result is
+    # a flex-row div containing one anchor with title= and href to /t/X.html
+    rows_selector: 'div.flex-row:has(a[href$=".html"][title])'
+    # Detail page has the magnet — two-step download.
+    download_selector: 'a[href^="magnet:?xt="]@href'
     fields:
       title:
-        selector: a[href$=".html"][title]@title
+        selector: 'a[href$=".html"][title]@title'
       details_url:
-        selector: a[href$=".html"][title]@href
-      download_url:
-        selector: a[href$=".html"][title]@href
-      publish_date:
-        selector: div:nth-child(3)
+        selector: 'a[href$=".html"][title]@href'
+      # Listing doesn't expose swarm stats — hardcode so downstream filters
+      # don't drop these results.
+      seeders:
+        text: "1"
+      leechers:
+        text: "0"
   modes:
     search: [q]
     tv-search: [q, season, ep]
     movie-search: [q]
     music-search: [q]
     book-search: [q]
-  headers:
-    User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.35
 category_mappings:
   - indexer_cat: "한국영화"
     torznab_cat: 2000

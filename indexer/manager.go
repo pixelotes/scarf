@@ -968,8 +968,24 @@ func (m *Manager) Search(ctx context.Context, indexerKey string, params SearchPa
 			if method == "POST" {
 				payload["postData"] = reqBody
 			}
-			if cookie, ok := def.UserConfig["cookie"]; ok && cookie != "" {
-				payload["cookies"] = parseCookieString(cookie)
+			// Combine cookies from UserConfig and from the YAML's
+			// search.headers (case-insensitive key match). Previously only
+			// UserConfig was forwarded, so layout/filter cookies declared in
+			// the definition were silently dropped under FlareSolverr (broke
+			// e.g. EZTV which needs layout=def_wlinks to expand magnets).
+			var cookieParts []string
+			if c, ok := def.UserConfig["cookie"]; ok && c != "" {
+				cookieParts = append(cookieParts, c)
+			}
+			for key, valTpl := range def.Search.Headers {
+				if strings.EqualFold(key, "cookie") {
+					if val, terr := m.executeTemplate(valTpl, tplData); terr == nil && val != "" {
+						cookieParts = append(cookieParts, val)
+					}
+				}
+			}
+			if combined := strings.Join(cookieParts, "; "); combined != "" {
+				payload["cookies"] = parseCookieString(combined)
 			}
 			resp, err = m.executeFlareSolverrRequest(ctx, payload)
 

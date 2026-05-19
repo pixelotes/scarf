@@ -32,6 +32,13 @@ search:
         selector: "p"
       publish_date:
         selector: "p"
+      # BTdirectory is a DHT crawler with no swarm stats. Hardcode a small
+      # non-zero seeder count so downstream filters (Sonarr/Radarr min-seeders)
+      # don't drop niche results.
+      seeders:
+        text: "2"
+      leechers:
+        text: "0"
   modes:
     search: [q]
     tv-search: [q, season, ep]

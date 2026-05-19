@@ -35,15 +35,21 @@ settings:
 search:
   type: html
   urls:
-    - "https://limetorrent.net/{{if .Query}}search?q={{.Query}}{{else}}latest100{{end}}"
+    # limetorrent.net's listing links jump to limetorrent.store for actual
+    # detail pages (where magnets live). Skip the bounce and search .store.
+    - "https://limetorrent.store/{{if .Query}}search?q={{.Query}}{{else}}latest100{{end}}"
   params: {}
   results:
     rows_selector: .table2 > tbody > tr[bgcolor]
     fields:
       title:
-        selector: div.tt-name > a[href^="/"]
+        # Each title row has two anchors with the same href — first is a
+        # rel="nofollow" SEO stub (empty text), second has the actual title.
+        # `:not([rel])` keeps only the real one. URLs are absolute so href^="/"
+        # would match neither.
+        selector: 'div.tt-name > a.openPopup:not([rel])'
       details_url:
-        selector: div.tt-name > a[href^="/"]@href
+        selector: 'div.tt-name > a.openPopup:not([rel])@href'
       size:
         selector: td:nth-child(3)
       seeders:

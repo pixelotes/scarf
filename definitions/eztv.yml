@@ -1,0 +1,45 @@
+key: eztv
+name: EZTV
+description: EZTV is a Public torrent site for TV shows
+type: public
+enabled: "false"
+language: en-US
+schedule: '@hourly'
+health_check:
+  query: "breaking bad"
+settings:
+  - name: use_flaresolverr
+    type: checkbox
+    label: Use FlareSolverr
+    # EZTV's mirrors are all behind Cloudflare with active challenges.
+    # FlareSolverr is required to reach them at all.
+    default: 'true'
+search:
+  type: html
+  urls:
+    - https://eztvx.to/{{ if .Query }}search/{{ .Query }}{{ else }}home{{ end }}
+  params: {}
+  results:
+    rows_selector: table.forum_header_border:contains('Latest') tr[name='hover'].forum_header_border:has(a.magnet), table.forum_header_border:contains('Releases') tr[name='hover'].forum_header_border:has(a.magnet)
+    fields:
+      title:
+        selector: td:nth-child(2) a@title
+      details_url:
+        selector: td:nth-child(2) a@href
+      download_url:
+        selector: td:nth-child(3) a.magnet, td:nth-child(3) a@href
+      size:
+        selector: td:nth-child(4)
+      seeders:
+        selector: td:nth-child(6)
+      publish_date:
+        selector: td:nth-child(5)
+  modes:
+    search:
+      - q
+    tv-search:
+      - q
+      - season
+      - ep
+  headers:
+    cookie: sort_no=100; q_filter=all; q_filter_web=on; q_filter_reality=on; q_filter_x265=on; layout=def_wlinks
