@@ -29,6 +29,37 @@ def convert_field_selector(jackett_field):
         return f"{selector}@{attribute}"
     return selector
 
+# Jackett template var → Scarf template var. Longer keys must be replaced before
+# shorter ones so '.Query.Season' doesn't get partially rewritten by '.Keywords'.
+_TEMPLATE_SUBSTITUTIONS = [
+    ('.Query.Season',  '.Season'),
+    ('.Query.Episode', '.Episode'),
+    ('.Query.Ep',      '.Episode'),
+    ('.Query.IMDBID',  '.IMDBID'),
+    ('.Keywords',      '.Query'),
+]
+
+def translate_template(value):
+    """Rewrite a Jackett template string into Scarf's variable namespace."""
+    if not isinstance(value, str):
+        return value
+    out = value
+    for jackett_var, scarf_var in _TEMPLATE_SUBSTITUTIONS:
+        out = out.replace(jackett_var, scarf_var)
+    return out
+
+_CONFIG_REF_RE = re.compile(r'\{\{\s*\.Config\.([a-zA-Z_]\w*)\s*\}\}')
+
+def materialize_config(value, defaults):
+    """Replace `{{ .Config.X }}` references with the setting's default value.
+
+    Used for fields like `download_selector` that Scarf does NOT pass through
+    its template engine (manager.go extractAttr treats the selector literally).
+    """
+    if not isinstance(value, str):
+        return value
+    return _CONFIG_REF_RE.sub(lambda m: str(defaults.get(m.group(1), '')), value)
+
 def convert_jackett_to_scarf(jackett_data):
     # Basic info
     scarf_def = {
@@ -36,7 +67,9 @@ def convert_jackett_to_scarf(jackett_data):
         'name': jackett_data.get('name', 'Unknown'),
         'description': jackett_data.get('description', ''),
         'type': jackett_data.get('type', 'public'),
-        'enabled': True,
+        # Disabled by default: converted definitions usually need manual review
+        # of selectors and templates before they're production-ready.
+        'enabled': 'false',
         'language': jackett_data.get('language', 'en-US'),
         'schedule': '@hourly'
     }
@@ -44,7 +77,10 @@ def convert_jackett_to_scarf(jackett_data):
     # --- Dynamic Settings Block ---
     scarf_settings = []
     use_flaresolverr_default = 'false'
-    
+    # Map of setting name → default, used later to materialize {{ .Config.X }}
+    # references in download_selector (which Scarf does not template).
+    settings_defaults = {}
+
     for setting in jackett_data.get('settings', []):
         if setting.get('type') == 'info_flaresolverr':
             use_flaresolverr_default = 'true'
@@ -52,11 +88,13 @@ def convert_jackett_to_scarf(jackett_data):
 
         setting_type = setting.get('type')
         if setting_type in ['text', 'password', 'checkbox', 'select']:
+            default_value = str(setting.get('default', ''))
+            settings_defaults[setting.get('name')] = default_value
             new_setting = {
                 'name': setting.get('name'),
                 'type': setting_type,
                 'label': setting.get('label'),
-                'default': str(setting.get('default', ''))
+                'default': default_value
             }
             if setting_type == 'select':
                 new_setting['options'] = setting.get('options', {})
@@ -115,21 +153,35 @@ def convert_jackett_to_scarf(jackett_data):
             elif isinstance(value, str):
                 header_value = value
             
-            # Convert Jackett's template syntax to Scarf's Go template syntax
-            header_value = header_value.replace(' .Keywords ', '.Query').replace(' .Config.', '.Config.')
-            scarf_headers[key] = header_value
+            scarf_headers[key] = translate_template(header_value)
         scarf_search['headers'] = scarf_headers
 
 
     base_url = jackett_data.get('links', [''])[0].rstrip('/')
     search_path_info = search_info.get('paths', [{}])[0]
     search_path = search_path_info.get('path', '').lstrip('/')
-    
-    # Build URL with query parameters from Jackett's 'inputs'
-    url_template = f"{base_url}/{search_path}"
-    
-    # Simplified URL template construction
+
+    url_template = translate_template(f"{base_url}/{search_path}")
     scarf_search['urls'].append(url_template)
+
+    # --- Two-step download: Jackett's top-level `download:` block ---
+    # Scarf reads `download_selector` from the details page when both
+    # `details_url` and `download_selector` are set (manager.go ~L1106).
+    # Scarf does NOT run templates on this selector, so .Config.X refs
+    # must be materialized to literal values here.
+    download_block = jackett_data.get('download', {})
+    candidate_selectors = []
+    for entry in download_block.get('selectors', []) if isinstance(download_block, dict) else []:
+        if not isinstance(entry, dict) or not entry.get('selector'):
+            continue
+        sel = materialize_config(entry['selector'], settings_defaults)
+        attr = entry.get('attribute')
+        candidate_selectors.append(f"{sel}@{attr}" if attr else sel)
+    if candidate_selectors:
+        # Prefer the selector that targets a magnet link — magnets work
+        # universally and .torrent host mirrors are notoriously unreliable.
+        preferred = next((c for c in candidate_selectors if 'magnet:' in c), candidate_selectors[0])
+        scarf_search['results']['download_selector'] = preferred
 
     # --- Field Selectors ---
     jackett_fields = search_info.get('fields', {})
