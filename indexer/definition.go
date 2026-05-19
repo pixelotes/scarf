@@ -39,6 +39,10 @@ func (b *Bool) UnmarshalYAML(value *yaml.Node) error {
 type Selector struct {
 	Selector string `yaml:"selector"`
 	Remove   string `yaml:"remove,omitempty"`
+	// Text, when set, short-circuits extraction and returns this literal value.
+	// Useful for sources that don't expose a field (e.g. DHT crawlers without
+	// seeder counts) where you still need a non-zero value downstream.
+	Text string `yaml:"text,omitempty"`
 }
 
 // LoginDefinition describes how to authenticate with a tracker
@@ -107,6 +111,15 @@ type Definition struct {
 	Search           SearchDefinition  `yaml:"search" json:"-"`
 	Categories       map[string]string `yaml:"categories" json:"-"`
 	CategoryMappings []CategoryMapping `yaml:"category_mappings" json:"category_mappings"`
+	HealthCheck      HealthCheck       `yaml:"health_check,omitempty" json:"-"`
+}
+
+// HealthCheck configures how the tracker is probed by tools/check. All fields
+// are optional; sensible defaults are used by the tool.
+type HealthCheck struct {
+	Query        string `yaml:"query,omitempty"`         // search keyword; defaults to "1080p"
+	RequiresAuth bool   `yaml:"requires_auth,omitempty"` // true → skip search, just probe host
+	Skip         bool   `yaml:"skip,omitempty"`          // true → don't test at all
 }
 
 // CategoryMapping maps an indexer's specific category ID to a standard Torznab category.

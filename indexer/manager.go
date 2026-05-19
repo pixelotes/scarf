@@ -1053,6 +1053,9 @@ func (m *Manager) Search(ctx context.Context, indexerKey string, params SearchPa
 }
 
 func (m *Manager) extractText(s *goquery.Selection, selector Selector) string {
+	if selector.Text != "" {
+		return selector.Text
+	}
 	selection := s.Find(selector.Selector)
 	if selector.Remove != "" {
 		selection.Find(selector.Remove).Remove()

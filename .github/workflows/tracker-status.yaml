@@ -1,0 +1,27 @@
+name: Tracker Status
+
+# Non-blocking: only runs on schedule or manual dispatch — never on PRs/push.
+# Output is printed to the workflow log; nothing is committed.
+on:
+  schedule:
+    - cron: "0 6 * * 1"  # Mondays 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Probe every tracker
+        run: |
+          go run ./tools/check > /tmp/status.json
+          echo "## Tracker status report" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          go run ./tools/render-status /tmp/status.json | tee -a "$GITHUB_STEP_SUMMARY"
