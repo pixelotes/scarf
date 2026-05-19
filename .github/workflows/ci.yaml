@@ -22,3 +22,35 @@ jobs:
 
       - name: go build
         run: go build -trimpath ./...
+
+      - name: Docker build
+        run: docker build -t scarf-smoke .
+
+      - name: Smoke test — container serves the login screen
+        run: |
+          set -euo pipefail
+          docker run -d --rm --name scarf-smoke \
+            -p 8080:8080 \
+            -e UI_PASSWORD=ci-smoke-test \
+            scarf-smoke
+
+          # Wait up to 30s for /health to respond 200.
+          for i in $(seq 1 30); do
+            if curl -fs -o /dev/null http://localhost:8080/health; then
+              echo "scarf is up after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+
+          # Final check: the index must serve the login screen.
+          body=$(curl -fsS http://localhost:8080/)
+          echo "$body" | grep -q '<title>Scarf' \
+            || { echo "::error::login page missing <title>Scarf"; exit 1; }
+          echo "$body" | grep -q 'id="login-form"' \
+            || { echo "::error::login page missing id=login-form"; exit 1; }
+          echo "login screen present ✓"
+
+      - name: Stop container
+        if: always()
+        run: docker stop scarf-smoke || true
