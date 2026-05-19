@@ -31,6 +31,7 @@ jobs:
           set -euo pipefail
           docker run -d --rm --name scarf-smoke \
             -p 8080:8080 \
+            -e WEB_UI=true \
             -e UI_PASSWORD=ci-smoke-test \
             scarf-smoke
 
@@ -44,10 +45,13 @@ jobs:
           done
 
           # Final check: the index must serve the login screen.
+          # Use here-string instead of `echo | grep -q` — under `pipefail`,
+          # grep -q closes the pipe early and echo dies with SIGPIPE (141),
+          # which would fail the step even when the marker is present.
           body=$(curl -fsS http://localhost:8080/)
-          echo "$body" | grep -q '<title>Scarf' \
+          grep -q '<title>Scarf' <<< "$body" \
             || { echo "::error::login page missing <title>Scarf"; exit 1; }
-          echo "$body" | grep -q 'id="login-form"' \
+          grep -q 'id="login-form"' <<< "$body" \
             || { echo "::error::login page missing id=login-form"; exit 1; }
           echo "login screen present ✓"
 
