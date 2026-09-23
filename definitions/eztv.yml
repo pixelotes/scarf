@@ -18,6 +18,10 @@ search:
   type: html
   urls:
     - https://eztvx.to/{{ if .Query }}search/{{ .Query }}{{ else }}home{{ end }}
+    - https://eztv1.xyz/{{ if .Query }}search/{{ .Query }}{{ else }}home{{ end }}
+    - https://eztv.wf/{{ if .Query }}search/{{ .Query }}{{ else }}home{{ end }}
+    - https://eztv.tf/{{ if .Query }}search/{{ .Query }}{{ else }}home{{ end }}
+    - https://eztv.yt/{{ if .Query }}search/{{ .Query }}{{ else }}home{{ end }}
   params: {}
   results:
     rows_selector: table.forum_header_border:contains('Latest') tr[name='hover'].forum_header_border:has(a.magnet), table.forum_header_border:contains('Releases') tr[name='hover'].forum_header_border:has(a.magnet)
