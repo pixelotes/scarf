@@ -2,7 +2,7 @@ key: magnetz
 name: Magnetz
 description: Magnetz is a Public torrent meta-search engine
 type: public
-enabled: "false"
+enabled: "true"
 language: en-US
 schedule: '@hourly'
 settings:

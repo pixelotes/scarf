@@ -9,7 +9,7 @@ settings:
   - name: use_flaresolverr
     type: checkbox
     label: Use FlareSolverr
-    default: 'false'
+    default: 'true'
 search:
   type: html
   urls:
@@ -27,6 +27,8 @@ search:
         selector: .meta a@href
       download_url:
         selector: .meta a@href
+      size:
+        selector: div.imagen span.dig1
     download_selector: a[href^="magnet:?"]@href
   modes:
     search:

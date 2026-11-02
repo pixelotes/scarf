@@ -26,6 +26,8 @@ services:
       - DB_PATH=/app/data/indexer-cache.db # Path for the database inside the container
       - GOGC=50 # Tune the garbage collector to reduce peak memory usage.
       - MAX_CONCURRENT_SEARCHES=4 # Limit the number of simultaneous search
+      - CACHE_ENABLED=false # Caching disabled
+      - ENABLE_CRONJOBS=false # Automatic jobs disabled
 
       # --- Security Settings (CHANGE THESE!) ---
       - UI_PASSWORD=your_secret_password_here # Set a strong password for the UI

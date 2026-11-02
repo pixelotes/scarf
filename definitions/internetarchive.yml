@@ -3,7 +3,7 @@ name: "Internet Archive"
 rate_limit: 2s
 description: "Internet Archive is a non-profit digital library offering free universal access to books, movies & music."
 type: "public"
-enabled: "false"
+enabled: "true"
 language: "en-US"
 schedule: "@every 6h" # Es una API, no es necesario consultarla con tanta frecuencia.
 settings:

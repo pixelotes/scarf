@@ -3,7 +3,7 @@ name: "TorrentGalaxy"
 rate_limit: 2s
 description: "TorrentGalaxy is a Public site for MOVIES / TV / GENERAL"
 type: "public"
-enabled: "false"
+enabled: "true"
 language: "en-US"
 schedule: "@every 1h"
 settings:

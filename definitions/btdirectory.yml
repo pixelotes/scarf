@@ -10,11 +10,11 @@ settings:
   - name: use_flaresolverr
     type: checkbox
     label: Use FlareSolverr
-    default: 'false'
+    default: 'true'
 search:
   type: html
   urls:
-    - "https://www.btmulu.quest/{{ if .Query }}search.html{{ else }}search-create.html{{ end }}"
+    - "https://btmulu.live/{{ if .Query }}search.html{{ else }}search-create.html{{ end }}"
   params:
     name: "{{.Query}}"
   results:

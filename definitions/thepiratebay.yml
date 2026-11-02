@@ -3,7 +3,7 @@ name: "The Pirate Bay"
 rate_limit: 2s
 description: "The galaxy's most resilient Public BitTorrent site"
 type: "public"
-enabled: "false"
+enabled: "true"
 language: "en-US"
 schedule: "@every 1h"
 settings:

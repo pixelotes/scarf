@@ -3,7 +3,7 @@ name: "TheRARBG"
 rate_limit: 2s
 description: "A Public site inspired by RARBG.to for MOVIES / TV / GENERAL"
 type: "public"
-enabled: "false"
+enabled: "true"
 language: "en-US"
 schedule: "@every 1h"
 settings:

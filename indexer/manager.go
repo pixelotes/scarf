@@ -1068,11 +1068,18 @@ func (m *Manager) Search(ctx context.Context, indexerKey string, params SearchPa
 	return nil, fmt.Errorf("all search attempts failed for indexer '%s', last error: %w", def.Name, lastErr)
 }
 
+func (m *Manager) findSelection(s *goquery.Selection, selector string) *goquery.Selection {
+	if strings.HasPrefix(selector, "next:") {
+		return s.Next().Find(strings.TrimPrefix(selector, "next:"))
+	}
+	return s.Find(selector)
+}
+
 func (m *Manager) extractText(s *goquery.Selection, selector Selector) string {
 	if selector.Text != "" {
 		return selector.Text
 	}
-	selection := s.Find(selector.Selector)
+	selection := m.findSelection(s, selector.Selector)
 	if selector.Remove != "" {
 		selection.Find(selector.Remove).Remove()
 	}
@@ -1081,7 +1088,8 @@ func (m *Manager) extractText(s *goquery.Selection, selector Selector) string {
 func (m *Manager) extractAttr(s *goquery.Selection, selector Selector) string {
 	parts := strings.Split(selector.Selector, "@")
 	if len(parts) == 2 {
-		val, _ := s.Find(parts[0]).Attr(parts[1])
+		selection := m.findSelection(s, parts[0])
+		val, _ := selection.Attr(parts[1])
 		return val
 	}
 	return m.extractText(s, selector)

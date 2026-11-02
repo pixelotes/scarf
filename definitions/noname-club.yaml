@@ -3,7 +3,7 @@ name: NoNaMe Club
 rate_limit: 2s
 description: NoNaMe Club (NNM-Club) is a RUSSIAN Public Tracker for MOVIES / TV / MUSIC
 type: public
-enabled: "false"
+enabled: "true"
 language: ru-RU
 schedule: "@hourly"
 settings:

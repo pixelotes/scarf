@@ -10,7 +10,7 @@ settings:
   - name: use_flaresolverr
     type: checkbox
     label: Use FlareSolverr
-    default: 'false'
+    default: 'true'
 search:
   type: html
   urls:
