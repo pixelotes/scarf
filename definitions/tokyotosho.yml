@@ -31,7 +31,8 @@ settings:
   - name: use_flaresolverr
     type: checkbox
     label: Use FlareSolverr
-    default: 'false'
+    # Searches serve a Cloudflare challenge (2026-11).
+    default: 'true'
 search:
   type: html
   urls:
