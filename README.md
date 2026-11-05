@@ -210,6 +210,13 @@ Here are some tips for running Scarf in memory-constrained devices:
 - [ ] Implement custom timeouts for trackers (curerntly there's a hardcoded 30s timeout for all indexers)
 - [ ] Add notifications for health checks (webhooks, pushbullet)
 - [ ] Dynamic search modes list for "/all" endpoint (automatically ignore indexers that don't have the requested search modes
+- [ ] Lightweight Cloudflare solver without a browser, based on [cfsolve](https://github.com/chris124567/cfsolve)
+  - Tested 2026-11-05: solved btdirectory, eztv, uindex and tokyotosho in 6-11 s, ~124 MB peak (FlareSolverr: ~722 MB). Its `cf_clearance` plus the profile's User-Agent works from a plain HTTP client.
+  - Plan: a small Rust sidecar using cfsolve as a library that speaks FlareSolverr's `/v1` API, so Scarf only needs `FLARESOLVERR_URL` pointed at it
+  - Cache `cf_clearance` per domain in the sidecar and only re-solve when a site serves the challenge again
+  - Fetch pages with the same Safari TLS fingerprint the cookie was issued to
+  - Ship as an optional MangoStack service (own compose profile, off by default); FlareSolverr stays an option for bigger hosts
+  - Caveats: single Safari iOS profile, breaks with `Error::Unsupported` when Cloudflare changes the challenge until the profile is updated; cookie is bound to IP and User-Agent
 
 
 

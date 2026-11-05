@@ -1,0 +1,45 @@
+key: "subsplease"
+name: "SubsPlease"
+rate_limit: 2s
+# Jackett implements SubsPlease in C#, so this one is hand-written against
+# the site's JSON API. Each show/episode entry carries one magnet per
+# resolution, expanded through sub_path.
+description: "SubsPlease is a Public anime release group with same-day simulcast rips"
+type: "public"
+enabled: "false"
+language: "en-US"
+schedule: "@hourly"
+health_check:
+  query: "frieren"
+settings:
+  - name: use_flaresolverr
+    type: checkbox
+    label: Use FlareSolverr
+    default: 'false'
+search:
+  type: "json"
+  urls:
+    - "https://subsplease.org/api/?f=search&tz=UTC&s={{.Query}}"
+  results:
+    # The response is an object keyed by release title; iterate its values.
+    path: "@this"
+    sub_path: "downloads"
+    fields:
+      title:
+        selector: "[SubsPlease] {{.Parent.show}} - {{.Parent.episode}} ({{.Result.res}}p)"
+      download_url:
+        selector: "{{.Result.magnet}}"
+      publish_date:
+        selector: "{{.Parent.release_date}}"
+      # The API has no swarm stats; a constant keeps min-seeder filters
+      # downstream from dropping every result.
+      seeders:
+        text: "1"
+      leechers:
+        text: "0"
+  modes:
+    search: [q]
+    tv-search: [q, season, ep]
+category_mappings:
+  - indexer_cat: "anime"
+    torznab_cat: 5080

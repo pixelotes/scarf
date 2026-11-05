@@ -84,7 +84,14 @@ settings:
 search:
   type: html
   urls:
+    # Tried in order; later ones are the mirrors Jackett lists, used when
+    # nyaa.si is down or blocked.
     - https://nyaa.si/?f=0&c=0_0&q={{.Query}}&s=seeders&o=desc
+    - https://nyaa.iss.ink/?f=0&c=0_0&q={{.Query}}&s=seeders&o=desc
+    - https://nyaa.mom/?f=0&c=0_0&q={{.Query}}&s=seeders&o=desc
+    - https://nyaa.media/?f=0&c=0_0&q={{.Query}}&s=seeders&o=desc
+    # nyaa.land serves a Cloudflare challenge on searches (2026-11); last resort.
+    - https://nyaa.land/?f=0&c=0_0&q={{.Query}}&s=seeders&o=desc
   params: {}
   results:
     # Nyaa marks rows by uploader trust: tr.default (regular), tr.success
