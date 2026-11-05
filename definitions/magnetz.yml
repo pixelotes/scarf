@@ -1,8 +1,13 @@
 key: magnetz
 name: Magnetz
-description: Magnetz is a Public torrent meta-search engine
-type: public
-enabled: "true"
+# Magnetz now requires an account (Jackett lists it as semi-private PAY2DL,
+# login with email + password). Scarf has no login flow for it, so it is
+# disabled and the health check only probes the host.
+description: Magnetz is a Semi-Private PAY2DL torrent meta-search engine
+type: semi-private
+enabled: "false"
+health_check:
+  requires_auth: true
 language: en-US
 schedule: '@hourly'
 settings:

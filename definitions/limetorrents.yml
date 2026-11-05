@@ -35,21 +35,20 @@ settings:
 search:
   type: html
   urls:
-    # limetorrent.net's listing links jump to limetorrent.store for actual
-    # detail pages (where magnets live). Skip the bounce and search .store.
-    - "https://limetorrent.store/{{if .Query}}search?q={{.Query}}{{else}}latest100{{end}}"
+    # Main domain per Jackett (2026-11). limetorrent.store no longer resolves.
+    # Many ISPs DNS-block every LimeTorrents domain; use a public resolver.
+    - "https://www.limetorrents.fun/{{if .Query}}search/all/{{.Query}}/{{.Config.sort}}/1/{{else}}latest100{{end}}"
   params: {}
   results:
-    rows_selector: .table2 > tbody > tr[bgcolor]
+    # Real rows carry an itorrents .torrent icon link plus a relative link to
+    # the detail page with the title. Ad rows (/leet2, torrentdownload.info)
+    # have no relative link, so requiring one filters them out.
+    rows_selector: '.table2 > tbody > tr[bgcolor]:has(div.tt-name > a[href^="/"])'
     fields:
       title:
-        # Each title row has two anchors with the same href — first is a
-        # rel="nofollow" SEO stub (empty text), second has the actual title.
-        # `:not([rel])` keeps only the real one. URLs are absolute so href^="/"
-        # would match neither.
-        selector: 'div.tt-name > a.openPopup:not([rel])'
+        selector: 'div.tt-name > a[href^="/"]'
       details_url:
-        selector: 'div.tt-name > a.openPopup:not([rel])@href'
+        selector: 'div.tt-name > a[href^="/"]@href'
       size:
         selector: td:nth-child(3)
       seeders:
