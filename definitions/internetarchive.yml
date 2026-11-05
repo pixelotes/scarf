@@ -25,16 +25,18 @@ search:
     fields:
       title:
         selector: "title"
-      # Construimos el magnet link directamente usando el hash (btih) y el título.
+      # El .torrent oficial del item: trae los trackers de archive.org y
+      # webseeds, así que el cliente descarga por HTTP aunque no haya pares.
+      # Un magnet con solo el btih depende de DHT y suele quedarse parado.
       download_url:
-        selector: "magnet:?xt=urn:btih:{{.Result.btih}}&dn={{.Result.title}}"
+        selector: "https://archive.org/download/{{.Result.identifier}}/{{.Result.identifier}}_archive.torrent"
       size:
         selector: "item_size"
       # Internet Archive no proporciona seeders/leechers, así que ponemos 1 por defecto para compatibilidad.
       seeders:
-        selector: "1"
+        text: "1"
       leechers:
-        selector: "1"
+        text: "0"
       publish_date:
         selector: "publicdate"
   modes:
