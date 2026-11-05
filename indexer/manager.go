@@ -1117,11 +1117,14 @@ func (m *Manager) parseHTMLResults(ctx context.Context, body io.Reader, def *Def
 		var sr SearchResult
 		sr.Indexer = def.Name // Add this line
 		sr.Title = m.extractAttr(s, fields.Title)
-		sr.Size = m.parseSize(m.extractText(s, fields.Size))
-		sr.Seeders, _ = strconv.Atoi(m.extractText(s, fields.Seeders))
-		sr.Leechers, _ = strconv.Atoi(m.extractText(s, fields.Leechers))
+		// extractAttr handles "selector@attr" and falls back to text otherwise,
+		// so feeds that carry these values in attributes (torznab:attr value=,
+		// <time datetime=>, <enclosure length=>) work too.
+		sr.Size = m.parseSize(m.extractAttr(s, fields.Size))
+		sr.Seeders, _ = strconv.Atoi(m.extractAttr(s, fields.Seeders))
+		sr.Leechers, _ = strconv.Atoi(m.extractAttr(s, fields.Leechers))
 
-		dateStr := m.extractText(s, fields.PublishDate)
+		dateStr := m.extractAttr(s, fields.PublishDate)
 		if dateStr != "" {
 			pubDate, err := parseFuzzyDate(dateStr)
 			if err == nil {
@@ -1299,13 +1302,28 @@ func processResult(m *Manager, resultValue gjson.Result, resultRaw, parentRaw ma
 		downloadURL = resultValue.Get(fields.DownloadURL.Selector).String()
 	}
 
-	size := resultValue.Get(fields.Size.Selector).Int()
-	if size == 0 {
-		size = m.parseSize(resultValue.Get(fields.Size.Selector).String())
+	// jsonField resolves a non-title field: a constant `text`, a template
+	// with access to .Result/.Parent, or a gjson path on the current item.
+	jsonField := func(sel Selector) string {
+		if sel.Text != "" {
+			return sel.Text
+		}
+		if strings.Contains(sel.Selector, "{{") {
+			v, _ := m.executeTemplate(sel.Selector, templateContext)
+			return v
+		}
+		return resultValue.Get(sel.Selector).String()
 	}
 
-	pubDateStr := resultValue.Get(fields.PublishDate.Selector).String()
-	pubDate, _ := parseFuzzyDate(pubDateStr)
+	sizeStr := jsonField(fields.Size)
+	size, err := strconv.ParseInt(strings.TrimSpace(sizeStr), 10, 64)
+	if err != nil || size == 0 {
+		size = m.parseSize(sizeStr)
+	}
+
+	pubDate, _ := parseFuzzyDate(jsonField(fields.PublishDate))
+	seeders, _ := strconv.Atoi(strings.TrimSpace(jsonField(fields.Seeders)))
+	leechers, _ := strconv.Atoi(strings.TrimSpace(jsonField(fields.Leechers)))
 
 	if title == "" || downloadURL == "" {
 		return
@@ -1315,8 +1333,8 @@ func processResult(m *Manager, resultValue gjson.Result, resultRaw, parentRaw ma
 		Title:       title,
 		DownloadURL: downloadURL,
 		Size:        size,
-		Seeders:     int(resultValue.Get(fields.Seeders.Selector).Int()),
-		Leechers:    int(resultValue.Get(fields.Leechers.Selector).Int()),
+		Seeders:     seeders,
+		Leechers:    leechers,
 		PublishDate: pubDate,
 		Indexer:     def.Name, // This will now work as intended
 	})
@@ -1442,6 +1460,10 @@ func (m *Manager) absURL(base, path string) string {
 
 func (m *Manager) parseSize(s string) int64 {
 	s = strings.ReplaceAll(s, "\u00A0", " ")
+	// A bare integer is a byte count (RSS enclosure length, Torznab <size>).
+	if n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64); err == nil {
+		return n
+	}
 	// Add GiB and MiB to the regex
 	sizeRegex := regexp.MustCompile(`(?i)(\d+(\.\d+)?)\s*(kb|mb|gb|tb|mib|gib)`)
 	matches := sizeRegex.FindStringSubmatch(s)
@@ -1517,8 +1539,8 @@ func parseFuzzyDate(dateStr string) (time.Time, error) {
 
 	formats := []string{
 		time.RFC3339, "2006-01-02 15:04:05", "2006-01-02 15:04",
-		time.RFC1123, "Jan 2, 2006", "2006-01-02",
-		time.RFC822,
+		time.RFC1123, time.RFC1123Z, "Jan 2, 2006", "2006-01-02",
+		time.RFC822, time.RFC822Z,
 	}
 	for _, format := range formats {
 		t, err := time.Parse(format, dateStr)
