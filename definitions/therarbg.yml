@@ -1,60 +1,67 @@
-key: "therarbg"
-name: "TheRARBG"
-rate_limit: 2s
+---
+# Converted from Scarf's own format (phase 4). Not in Prowlarr/Indexers.
+id: therarbg
+name: TheRARBG
 description: "A Public site inspired by RARBG.to for MOVIES / TV / GENERAL"
-type: "public"
-enabled: "true"
-language: "en-US"
-schedule: "@every 1h"
-settings:
-  - name: use_flaresolverr
-    type: checkbox
-    label: Use FlareSolverr
-    default: 'false'
-search:
-  type: "json"
-  urls:
-    - "https://therarbg.to/get-posts/order:-a{{if .Category}}:category:{{.Category}}{{end}}{{if .Query}}:keywords:{{.Query}}{{else}}:time:10D{{end}}:paginate_by:100:format:json/"
-    - "https://therarbg.com/get-posts/order:-a{{if .Category}}:category:{{.Category}}{{end}}{{if .Query}}:keywords:{{.Query}}{{else}}:time:10D{{end}}:paginate_by:100:format:json/"
-  results:
-    path: "results"
-    fields:
-      title:
-        selector: "n"
-      size:
-        selector: "s"
-      seeders:
-        selector: "se"
-      leechers:
-        selector: "le"
-      publish_date:
-        selector: "a"
-      download_url:
-        selector: "magnet:?xt=urn:btih:{{.Result.h}}&dn={{.Result.n}}"
+language: en-US
+type: public
+encoding: UTF-8
+requestDelay: 2
+links:
+  - https://therarbg.to/
+  - https://therarbg.com/
+
+caps:
+  categorymappings:
+    - {id: Movies, cat: Movies, desc: Movies}
+    - {id: TV, cat: TV, desc: TV}
+    - {id: Games, cat: PC/Games, desc: Games}
+    - {id: Music, cat: Audio, desc: Music}
+    - {id: Anime, cat: TV/Anime, desc: Anime}
+    - {id: Documentaries, cat: Movies/Other, desc: Documentaries}
+    - {id: Apps, cat: PC, desc: Apps}
+    - {id: Other, cat: Other, desc: Other}
+    - {id: Books, cat: Books, desc: Books}
+    - {id: XXX, cat: XXX, desc: XXX}
   modes:
     search: [q]
     tv-search: [q, season, ep]
     movie-search: [q, imdbid]
     music-search: [q]
     book-search: [q]
-category_mappings:
-  - indexer_cat: "Movies"
-    torznab_cat: 2000
-  - indexer_cat: "TV"
-    torznab_cat: 5000
-  - indexer_cat: "Games"
-    torznab_cat: 4050
-  - indexer_cat: "Music"
-    torznab_cat: 3000
-  - indexer_cat: "Anime"
-    torznab_cat: 5080
-  - indexer_cat: "Documentaries"
-    torznab_cat: 2020
-  - indexer_cat: "Apps"
-    torznab_cat: 4000
-  - indexer_cat: "Other"
-    torznab_cat: 8000
-  - indexer_cat: "Books"
-    torznab_cat: 7000
-  - indexer_cat: "XXX"
-    torznab_cat: 6000
+
+settings: []
+
+search:
+  paths:
+    - path: "get-posts/order:-a{{ if .Categories }}:category:{{ join .Categories \",\" }}{{ end }}{{ if .Keywords }}:keywords:{{ .Keywords }}{{ else }}:time:10D{{ end }}:paginate_by:100:format:json/"
+      response:
+        type: json
+  keywordsfilters:
+    - name: replace
+      args: [":", " "]
+  rows:
+    selector: results
+  fields:
+    category:
+      selector: c
+      optional: true
+      default: Other
+    title:
+      selector: n
+    infohash:
+      selector: h
+    download:
+      text: "magnet:?xt=urn:btih:{{ .Result.infohash }}&dn={{ .Result.title }}"
+    size:
+      selector: s
+    seeders:
+      selector: se
+    leechers:
+      selector: le
+    date:
+      selector: a
+    downloadvolumefactor:
+      text: 0
+    uploadvolumefactor:
+      text: 1
