@@ -348,6 +348,7 @@ func main() {
 	// Torznab API endpoints
 	r.Get("/torznab/{indexer}/api", apiHandler.TorznabAPI)
 	r.Get("/torznab/{indexer}/latest", apiHandler.TorznabLatest)
+	r.Get("/torznab/{indexer}/download", apiHandler.TorznabDownload)
 	r.Get("/torznab/{indexer}", apiHandler.TorznabSearch)
 
 	if !cfg.WebUIEnabled {

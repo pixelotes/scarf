@@ -2,6 +2,7 @@ package cardigann
 
 import (
 	"fmt"
+	"html"
 	"net/url"
 	"strconv"
 	"strings"
@@ -108,11 +109,71 @@ var filters = map[string]filterFunc{
 		if len(a) < 1 {
 			return v, fmt.Errorf("dateparse needs 1 arg")
 		}
-		t, err := time.Parse(dotnetLayout(a[0]), strings.TrimSpace(v))
+		layout := dotnetLayout(a[0])
+		t, err := time.Parse(layout, strings.TrimSpace(v))
+		if err != nil && strings.Contains(layout, "-07:00") {
+			// .NET's zzz also accepts offsets without a colon (+0800).
+			t, err = time.Parse(strings.Replace(layout, "-07:00", "-0700", 1), strings.TrimSpace(v))
+		}
 		if err != nil {
 			return v, fmt.Errorf("dateparse %q with %q: %w", v, a[0], err)
 		}
 		return t.Format(time.RFC3339), nil
+	},
+	"validfilename": func(v string, _ []string) (string, error) {
+		return strings.Map(func(r rune) rune {
+			if r < 32 || strings.ContainsRune(`<>:"/\|?*`, r) {
+				return '_'
+			}
+			return r
+		}, v), nil
+	},
+	"htmldecode": func(v string, _ []string) (string, error) { return html.UnescapeString(v), nil },
+	"htmlencode": func(v string, _ []string) (string, error) { return html.EscapeString(v), nil },
+	// validate keeps the words of v that appear in the comma-separated list in args[0].
+	"validate": func(v string, a []string) (string, error) {
+		if len(a) < 1 {
+			return v, nil
+		}
+		allowed := map[string]bool{}
+		for _, w := range strings.Split(a[0], ",") {
+			allowed[strings.ToLower(strings.TrimSpace(w))] = true
+		}
+		var keep []string
+		for _, w := range strings.FieldsFunc(v, func(r rune) bool {
+			return r == ',' || r == '/' || r == ' ' || r == '|' || r == ';' || r == '.'
+		}) {
+			if allowed[strings.ToLower(w)] {
+				keep = append(keep, w)
+			}
+		}
+		return strings.Join(keep, ", "), nil
+	},
+	// jsonjoinarray selects an array from a JSON value and joins its items.
+	"jsonjoinarray": func(v string, a []string) (string, error) {
+		if len(a) < 2 {
+			return v, fmt.Errorf("jsonjoinarray needs 2 args")
+		}
+		doc, err := decodeJSON([]byte(v))
+		if err != nil {
+			return "", err
+		}
+		tok, ok := jsonPath(doc, a[0])
+		if !ok {
+			return "", nil
+		}
+		arr, ok := tok.([]any)
+		if !ok {
+			s, _ := jsonString(tok)
+			return s, nil
+		}
+		parts := make([]string, 0, len(arr))
+		for _, e := range arr {
+			if s, ok := jsonString(e); ok {
+				parts = append(parts, s)
+			}
+		}
+		return strings.Join(parts, a[1]), nil
 	},
 	"timeago":   func(v string, _ []string) (string, error) { return timeAgo(v, time.Now()) },
 	"fuzzytime": func(v string, _ []string) (string, error) { return timeAgo(v, time.Now()) },
@@ -121,6 +182,8 @@ var filters = map[string]filterFunc{
 		return stripDiacritics(v), nil
 	},
 }
+
+func init() { filters["timeparse"] = filters["dateparse"] }
 
 func applyFilters(v string, fs []Filter, ctx *Context) (string, error) {
 	for _, f := range fs {

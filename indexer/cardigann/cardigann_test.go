@@ -167,9 +167,9 @@ func TestCheckboxOffUsesTorrent(t *testing.T) {
 }
 
 func TestParseRejectsUnsupported(t *testing.T) {
-	def := strings.Replace(testDef, "search:\n  paths:", "login:\n  path: login.php\nsearch:\n  paths:", 1)
-	if _, err := Parse([]byte(def)); err == nil || !strings.Contains(err.Error(), "login") {
-		t.Fatalf("want login rejection, got %v", err)
+	def := strings.Replace(testDef, "search:\n  paths:", "login:\n  path: login.php\n  method: form\n  captcha:\n    type: image\nsearch:\n  paths:", 1)
+	if _, err := Parse([]byte(def)); err == nil || !strings.Contains(err.Error(), "captcha") {
+		t.Fatalf("want captcha rejection, got %v", err)
 	}
 	def = strings.Replace(testDef, "name: append", "name: nosuchfilter", 1)
 	if _, err := Parse([]byte(def)); err == nil || !strings.Contains(err.Error(), "nosuchfilter") {
@@ -268,5 +268,32 @@ func TestRawStrings(t *testing.T) {
 	got, err := render(`{{ re_replace .Keywords "[\s]+" "+" }}`, &Context{Keywords: "a  b c"})
 	if err != nil || got != "a+b+c" {
 		t.Fatalf("got %q, %v", got, err)
+	}
+}
+
+func TestLinkFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(testHTML))
+	}))
+	defer srv.Close()
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "down", http.StatusBadGateway)
+	}))
+	defer dead.Close()
+
+	d, err := Parse([]byte(testDef))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Links = []string{dead.URL, srv.URL}
+	res, err := d.Run(context.Background(), srv.Client(), Query{Keywords: "show"}, nil)
+	if err != nil || len(res) != 1 {
+		t.Fatalf("got %d results, %v", len(res), err)
+	}
+	if got := d.BaseURL(nil); got != srv.URL+"/" {
+		t.Errorf("working link not remembered: %s", got)
+	}
+	if !strings.HasPrefix(res[0].Details, srv.URL) {
+		t.Errorf("details on the wrong host: %s", res[0].Details)
 	}
 }

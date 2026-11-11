@@ -142,6 +142,10 @@ type SearchResult struct {
 	Leechers    int       `json:"Leechers"`
 	PublishDate time.Time `json:"PublishDate"`
 	Indexer     string    `json:"Indexer"`
+	// IndexerKey and Proxied mark results whose link must go through the
+	// download proxy (private trackers, download blocks).
+	IndexerKey string `json:"IndexerKey,omitempty"`
+	Proxied    bool   `json:"Proxied,omitempty"`
 }
 
 // SearchParams holds all possible search parameters from Torznab requests

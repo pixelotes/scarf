@@ -2,6 +2,7 @@ package cardigann
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -52,15 +53,57 @@ const MaxBodySize = 10 << 20
 
 // Run runs every matching search path and returns the merged, de-duplicated results.
 func (d *Definition) Run(ctx context.Context, client Doer, q Query, config map[string]string) ([]Result, error) {
-	base := d.BaseURL(config)
+	bases := d.candidateLinks(config)
+	var lastErr error
+	for i, base := range bases {
+		res, err := d.runOnce(ctx, client, base, q, config)
+		if err == nil {
+			if i > 0 {
+				d.setActiveLink(base)
+			}
+			return res, nil
+		}
+		lastErr = err
+		if errors.Is(err, ErrLoginRequired) || ctx.Err() != nil {
+			break // a mirror will not fix these
+		}
+	}
+	return nil, lastErr
+}
+
+// candidateLinks lists the site links to try: the "sitelink" setting alone
+// when the user set one, else every link starting with the last one that worked.
+func (d *Definition) candidateLinks(config map[string]string) []string {
+	if s := strings.TrimSpace(config["sitelink"]); s != "" {
+		return []string{ensureSlash(s)}
+	}
+	start := int(d.activeLink.Load())
+	out := make([]string, 0, len(d.Links))
+	for i := range d.Links {
+		out = append(out, ensureSlash(d.Links[(start+i)%len(d.Links)]))
+	}
+	return out
+}
+
+func (d *Definition) setActiveLink(base string) {
+	for i, l := range d.Links {
+		if ensureSlash(l) == base {
+			d.activeLink.Store(int32(i))
+			return
+		}
+	}
+}
+
+func (d *Definition) runOnce(ctx context.Context, client Doer, base string, q Query, config map[string]string) ([]Result, error) {
 	tctx := d.newContext(q, config)
+	tctx.Config["sitelink"] = base
 
 	kw, err := applyFilters(tctx.Keywords, d.Search.KeywordsFilters, tctx)
 	if err != nil {
 		return nil, fmt.Errorf("keywordsfilters: %w", err)
 	}
 	tctx.Keywords = strings.TrimSpace(kw)
-	tctx.Query.Keywords = tctx.Keywords
+	tctx.Query["Keywords"] = tctx.Keywords
 
 	var (
 		results []Result
@@ -98,12 +141,10 @@ func (d *Definition) Run(ctx context.Context, client Doer, q Query, config map[s
 	return results, nil
 }
 
-// BaseURL is the site link to use: the "sitelink" setting when set, else the first link.
+// BaseURL is the site link to use: the "sitelink" setting when set, else the
+// link that last worked (the first one until a search falls back).
 func (d *Definition) BaseURL(config map[string]string) string {
-	if s := strings.TrimSpace(config["sitelink"]); s != "" {
-		return ensureSlash(s)
-	}
-	return ensureSlash(d.Links[0])
+	return d.candidateLinks(config)[0]
 }
 
 func ensureSlash(s string) string {
@@ -170,11 +211,24 @@ func (d *Definition) newContext(q Query, config map[string]string) *Context {
 	return &Context{
 		Keywords: keywords,
 		Query: QueryVars{
-			Q: q.Keywords, Keywords: keywords, Season: season, Ep: ep,
-			IMDBID: imdb, IMDBIDShort: strings.TrimPrefix(imdb, "tt"), TVDBID: q.TVDBID,
+			"Q": q.Keywords, "Keywords": keywords, "Type": queryType(q), "Season": season, "Ep": ep,
+			"IMDBID": imdb, "IMDBIDShort": strings.TrimPrefix(imdb, "tt"), "TVDBID": q.TVDBID,
+			"Limit": "100", "Offset": "0",
 		},
 		Config:     cfg,
 		Categories: q.Categories,
+	}
+}
+
+// queryType is Torznab's search type, which some definitions branch on.
+func queryType(q Query) string {
+	switch {
+	case q.Season > 0 || q.TVDBID != "":
+		return "tvsearch"
+	case q.IMDBID != "":
+		return "movie"
+	default:
+		return "search"
 	}
 }
 
@@ -211,7 +265,11 @@ func (d *Definition) runPath(ctx context.Context, client Doer, base string, p Pa
 		values.Set(k, v)
 	}
 
-	method := strings.ToUpper(p.Method)
+	m, err := render(p.Method, tctx)
+	if err != nil {
+		return nil, err
+	}
+	method := strings.ToUpper(strings.TrimSpace(m))
 	if method == "" {
 		method = http.MethodGet
 	}
@@ -239,26 +297,16 @@ func (d *Definition) runPath(ctx context.Context, client Doer, base string, p Pa
 	if method == http.MethodPost {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
-	for k, v := range d.Search.Headers {
-		hv := ""
-		switch t := v.(type) {
-		case string:
-			hv = t
-		case []any:
-			if len(t) > 0 {
-				hv = fmt.Sprint(t[0])
-			}
-		}
-		if hv, err = render(hv, tctx); err == nil && hv != "" {
-			req.Header.Set(k, hv)
-		}
-	}
+	setHeaders(req, d.Search.Headers, tctx)
 
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request %s: %w", reqURL.Redacted(), err)
 	}
 	defer resp.Body.Close()
+	if resp.Request != nil && d.isLoginPage(resp.Request.URL) {
+		return nil, fmt.Errorf("%s: %w", reqURL.Redacted(), ErrLoginRequired)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("request %s: status %s", reqURL.Redacted(), resp.Status)
 	}
@@ -268,7 +316,7 @@ func (d *Definition) runPath(ctx context.Context, client Doer, base string, p Pa
 	if d.Encoding != "" && !strings.EqualFold(d.Encoding, "utf-8") {
 		enc = "text/html; charset=" + d.Encoding
 	}
-	if enc != "" {
+	if enc != "" && p.Response.Type != "json" {
 		if cr, err := charset.NewReader(r, enc); err == nil {
 			r = cr
 		}
@@ -277,7 +325,22 @@ func (d *Definition) runPath(ctx context.Context, client Doer, base string, p Pa
 	if resp.Request != nil && resp.Request.URL != nil {
 		pageURL = resp.Request.URL.String() // after redirects
 	}
-	return d.ParseHTML(r, pageURL, tctx)
+	switch p.Response.Type {
+	case "json":
+		data, err := io.ReadAll(r)
+		if err != nil {
+			return nil, err
+		}
+		return d.ParseJSON(data, pageURL, p, tctx)
+	case "xml":
+		doc, err := parseXML(r)
+		if err != nil {
+			return nil, err
+		}
+		return d.parseDocument(doc, pageURL, tctx)
+	default:
+		return d.ParseHTML(r, pageURL, tctx)
+	}
 }
 
 func joinQuery(a, b string) string {
@@ -327,6 +390,10 @@ func (d *Definition) ParseHTML(r io.Reader, pageURL string, tctx *Context) ([]Re
 	if err != nil {
 		return nil, err
 	}
+	return d.parseDocument(doc, pageURL, tctx)
+}
+
+func (d *Definition) parseDocument(doc *goquery.Document, pageURL string, tctx *Context) ([]Result, error) {
 	rowSel, err := render(d.Search.Rows.Selector, tctx)
 	if err != nil {
 		return nil, err
@@ -346,7 +413,11 @@ func (d *Definition) ParseHTML(r io.Reader, pageURL string, tctx *Context) ([]Re
 			// "after: N" merges the following N rows into this one.
 			row = row.AddSelection(rows.Eq(i + j))
 		}
-		res, err := d.parseRow(row, pageURL, tctx)
+		extract := func(f Field, ctx *Context) (string, error) { return extractField(row, f, ctx) }
+		if dh := d.Search.Rows.DateHeaders; dh != nil {
+			extract = withDateHeader(extract, rows.Eq(i), *dh)
+		}
+		res, err := d.buildResult(extract, pageURL, tctx)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err
@@ -363,15 +434,46 @@ func (d *Definition) ParseHTML(r io.Reader, pageURL string, tctx *Context) ([]Re
 	return results, nil
 }
 
-func (d *Definition) parseRow(row *goquery.Selection, pageURL string, tctx *Context) (Result, error) {
+// withDateHeader supplies the "date" field from the closest preceding header
+// row matching rows.dateheaders, for sites that group releases under a date.
+func withDateHeader(next func(Field, *Context) (string, error), row *goquery.Selection, dh Field) func(Field, *Context) (string, error) {
+	return func(f Field, ctx *Context) (string, error) {
+		v, err := next(f, ctx)
+		if f.Name != "date" || err == nil {
+			return v, err
+		}
+		for n := row; n.Length() > 0; n = n.Parent() {
+			if h := n.PrevAllFiltered(dh.Selector).First(); h.Length() > 0 {
+				hf := dh
+				hf.Selector = ""
+				return extractField(h, hf, ctx)
+			}
+		}
+		return v, err
+	}
+}
+
+// implicitlyOptional are fields Cardigann treats as optional even when the
+// definition does not say so: informational values Scarf can do without.
+var implicitlyOptional = map[string]bool{
+	"imdb": true, "imdbid": true, "tmdbid": true, "rageid": true, "tvdbid": true, "tvmazeid": true,
+	"traktid": true, "doubanid": true, "poster": true, "banner": true, "description": true, "genre": true,
+}
+
+// buildResult runs the field definitions through extract and maps the values to a Result.
+func (d *Definition) buildResult(extract func(Field, *Context) (string, error), pageURL string, tctx *Context) (Result, error) {
 	vals := make(map[string]string, len(d.Search.Fields))
 	rctx := *tctx
 	rctx.Result = vals
 
+	hasDate := false
 	for _, f := range d.Search.Fields {
-		v, err := extractField(row, f, &rctx)
+		if f.Name == "date" {
+			hasDate = true
+		}
+		v, err := extract(f, &rctx)
 		if err != nil {
-			if !f.Optional {
+			if !f.Optional && !implicitlyOptional[f.Name] {
 				return Result{}, fmt.Errorf("field %s: %w", f.Name, err)
 			}
 			v = ""
@@ -380,6 +482,11 @@ func (d *Definition) parseRow(row *goquery.Selection, pageURL string, tctx *Cont
 			}
 		}
 		vals[f.Name] = v
+	}
+	if !hasDate && d.Search.Rows.DateHeaders != nil {
+		if v, err := extract(Field{Name: "date"}, &rctx); err == nil {
+			vals["date"] = v
+		}
 	}
 
 	res := Result{
@@ -417,19 +524,6 @@ func extractField(row *goquery.Selection, f Field, ctx *Context) (string, error)
 			return "", err
 		}
 		v = r
-	case f.Case != nil:
-		matched := false
-		for sel, val := range f.Case {
-			if sel == "*" || row.Is(sel) || row.Find(sel).Length() > 0 {
-				v, matched = val, true
-				if sel != "*" {
-					break
-				}
-			}
-		}
-		if !matched {
-			return "", errNotFound
-		}
 	default:
 		sel, err := render(f.Selector, ctx)
 		if err != nil {
@@ -444,6 +538,21 @@ func extractField(row *goquery.Selection, f Field, ctx *Context) (string, error)
 		}
 		if node.Length() == 0 {
 			return "", errNotFound
+		}
+		if f.Case != nil {
+			// Case selectors are tested against the selected element:
+			// it matches them itself or contains a match.
+			matched := false
+			for _, k := range caseKeys(f.Case) {
+				if k == "*" || node.Is(k) || node.Find(k).Length() > 0 {
+					v, matched = f.Case[k], true
+					break
+				}
+			}
+			if !matched {
+				return "", errNotFound
+			}
+			return applyFilters(v, f.Filters, ctx)
 		}
 		if f.Remove != "" {
 			node = node.Clone()
@@ -460,6 +569,22 @@ func extractField(row *goquery.Selection, f Field, ctx *Context) (string, error)
 		}
 	}
 	return applyFilters(v, f.Filters, ctx)
+}
+
+// caseKeys returns the case selectors with the "*" fallback last. YAML maps
+// lose their order, so the remaining keys are sorted for stable results.
+func caseKeys(c map[string]string) []string {
+	keys := make([]string, 0, len(c))
+	for k := range c {
+		if k != "*" {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	if _, ok := c["*"]; ok {
+		keys = append(keys, "*")
+	}
+	return keys
 }
 
 func absURL(base, ref string) string {
