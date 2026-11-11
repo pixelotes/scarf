@@ -1,118 +1,126 @@
-# 🧣 Scarf: Your Personal Meta-Indexer
+# Scarf
 
-Scarf is a versatile, self-hosted meta-indexer that acts as a bridge between your favorite media automation tools (like Sonarr, Radarr, Lidarr) and various public and private torrent trackers. 
-It provides a clean, unified Torznab API, allowing you to search across multiple sites simultaneously.
+Scarf is a self-hosted meta-indexer that exposes public and private torrent trackers through a single Torznab API, driven by YAML definition files.
+
+Part of [MangoStack](https://github.com/pixelotes/MangoStack), a self-hosted media stack for the Raspberry Pi.
 
 ![image](./scarf.jpg)
 
-## ✨ Features
+## Footprint
 
-* **Ultra-lightweight**: It's a single Go binary that usually takes around 10-15 MB or RAM and virtually no CPU.
-* **Torznab API**: Provides a standard Torznab feed compatible with most media automation software.
-* **Multi-Indexer Support**: Search across multiple public torrent sites at once.
-* **Extensible Definition Files**: Easily add or modify indexers using simple YAML configuration files.
-* **Web UI**: A simple web interface for manual searching, status checks, and log viewing.
-* **Scheduled Caching**: Pre-fetches the latest releases from indexers to provide fast results.
-* **Dockerized**: Easy to deploy and manage using the provided `Dockerfile`.
-* **Secure**: Protect the web UI with a password and secure the Torznab API with a unique key.
+Scarf is a single static Go binary (`CGO_ENABLED=0`) in a `scratch` image. Memory depends on which optional features are on:
 
----
+- MangoStack runs it with `ENABLE_CRONJOBS=false`, `CACHE_ENABLED=true`, `MAX_CACHE_SIZE_MB=32` and `MAX_CONCURRENT_SEARCHES=3`, and measured about 11 MB RSS idle.
+- The older "10-15 MB" figure was not tied to a specific configuration; other setups need re-measuring.
 
-## 🚀 Getting Started
+What pushes memory up:
 
-The easiest way to get Scarf up and running is with Docker.
+- **Cron jobs** (`ENABLE_CRONJOBS`, default on): each indexer's `schedule` fetches its latest releases into the cache. Only runs when the cache is enabled too.
+- **Cache** (`CACHE_ENABLED`, `MAX_CACHE_SIZE_MB`): SQLite cache; a bigger limit means more data held and touched.
+- **Web UI** (`WEB_UI`): adds the authenticated API, the log WebSocket and stats.
+- **Loaded definitions**: every definition in `DEFINITIONS_PATH` is kept in memory.
+- **Concurrent searches** (`MAX_CONCURRENT_SEARCHES`): more parallel tracker requests during a search.
 
-### Prerequisites
+CPU is negligible at idle; searches are network-bound.
 
-* [Docker](https://docs.docker.com/get-docker/) installed on your system.
+Disk writes:
 
-### Build and Run
+- The SQLite cache at `DB_PATH`, only when `CACHE_ENABLED=true`. With the cache off, no database is opened.
+- The definition YAML files, when you toggle an indexer or save its settings from the web UI.
 
-1.  **Clone the repository (or download the files):**
-    ```bash
-    git clone [https://github.com/pixelotes/scarf.git](https://github.com/pixelotes/scarf.git)
-    cd scarf
-    ```
+## Features
 
-2.  **Build the Docker image:**
-    ```bash
-    docker build -t scarf .
-    ```
+- Torznab API per indexer (`/torznab/<key>`) and across all indexers (`/torznab/all`).
+- YAML indexer definitions: JSON APIs, HTML scraping, and two-step scraping (results page, then details page for the magnet/download link).
+- Multi-domain definitions (several `urls`).
+- Private trackers: login with user/password (`login` block), custom headers, and per-indexer settings shown as a form in the web UI.
+- Search modes per definition (`search`, `tv-search`, `movie-search`, `music-search`, `book-search`).
+- Definitions are reloaded automatically when files in `DEFINITIONS_PATH` change.
+- Optional SQLite result cache with a size limit, plus scheduled pre-fetch of latest releases.
+- Automatic disabling of indexers after `MAX_FAILURES` consecutive failures.
+- Per-indexer rate limit (`rate_limit` in the definition).
+- Server-side filtering (`min_seeders`, `min_size`) and sorting (`sort`, `order`; seeders descending by default). See [docs/api_usage_and_sorting.md](docs/api_usage_and_sorting.md).
+- Cloudflare-protected sites through a FlareSolverr-compatible service: [Parasol](https://github.com/pixelotes/parasol) (what MangoStack uses) or FlareSolverr. Enabled per indexer with its `use_flaresolverr` setting.
+- Web UI: manual search, live logs, indexer status/tests, statistics, recent searches. Protected by a password; the Torznab API uses an API key.
 
-3.  **Run the container:**
-    ```bash
-    docker run -d \
-      -p 8080:8080 \
-      -v $(pwd)/definitions:/app/definitions \
-      -v $(pwd)/data:/app/data \
-      -e UI_PASSWORD="your_secure_password" \
-      --name scarf \
-      scarf
-    ```
+## Quick start
 
-After running the command, Scarf will be accessible at `http://localhost:8080`.
+Use the published `pixelotes/scarf:arm64` image, or build your own with `docker build -t scarf .`.
 
----
+```yaml
+services:
+  scarf:
+    image: pixelotes/scarf:arm64
+    container_name: scarf
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./definitions:/app/definitions
+      - ./data:/app/data
+    environment:
+      - UI_PASSWORD=change-me
+      - FLEXGET_API_KEY=a-long-random-key
+      - JWT_SECRET=a-long-random-secret
+```
 
-## ⚙️ Configuration
+Scarf is then at `http://localhost:8080`. Inside MangoStack it is already wired in `docker-compose.yaml`.
 
-Scarf is configured using environment variables. Here are the most important ones:
+## Configuration
 
-| Variable            | Description                                                                 | Default                      |
-| ------------------- | --------------------------------------------------------------------------- | ---------------------------- |
-| `APP_PORT`          | The port the application will listen on.                                    | `8080`                       |
-| `DEFINITIONS_PATH`  | Path to the indexer definition files.                                       | `./definitions`              |
-| `SKIP_TLS_VERIFY`  | Skip TLS certs verification (highly insecure, use with care).                                       | `false`              |
-| `CACHE_ENABLED`         | Enable or disable cache.                                           | `true`                        |
-| `CACHE_TTL`         | How long to cache search results.                                           | `15m`                        |
-| `LATEST_CACHE_TTL`  | How long to cache the latest releases.                                      | `24h`                        |
-| `MAX_CACHE_SIZE_MB` | Maximum cache size in megabytes (minimum 10MB) | '500' |
-| `DB_PATH`           | Path to the SQLite database file for the cache.                             | `./data/indexer-cache.db`    |
-| `WEB_UI`            | Enable or disable the web UI.                                               | `true`                       |
-| `DEBUG`             | Enable debug logging.                                                       | `false`                      |
-| `UI_PASSWORD`       | Password to protect the web UI. **Set this!**                               | `password`                   |
-| `FLEXGET_API_KEY`   | The API key for accessing the Torznab feed.                                 | (auto-generated 16 chars)    |
-| `JWT_SECRET`        | A secret key for signing session tokens.                                    | (auto-generated 32 chars)    |
-| `FLARESOLVERR_URL`  | The url pointing to the FlareSolverr service                                |                              |
-| `DEFAULT_API_LIMIT` | Default number of results for API clients that don't support pagination.    | `100`                        |
-| `ENABLE_CRONJOBS`   | Enables or disables the job that caches the latest tracker releases         | `true`                       |
-| `MAX_FAILURES`   | Failure threshold for disabling an indexer. Set to 0 to disable this feature.    | `5`                       |
-| `MAX_CONCURRENT_SEARCHES`   | A lower value might reduce memory and cpu usage, but searches might take longer.    | `4`                       |
+All configuration is through environment variables (`config/config.go`). The effective values are logged at startup.
 
----
+| Variable | Description | Default |
+|---|---|---|
+| `APP_PORT` | Listen port. | `8080` |
+| `DEFINITIONS_PATH` | Directory with indexer definitions. | `./definitions` |
+| `WEB_UI` | Enable the web UI and its authenticated API. | `true` |
+| `UI_PASSWORD` | Web UI password (min 6 chars when the UI is on). **Set this.** | `password` |
+| `FLEXGET_API_KEY` | Torznab API key (`apikey=` parameter). MangoStack maps `SCARF_API_KEY` to it. | random, regenerated on every start unless set |
+| `JWT_SECRET` | Secret for signing web UI sessions. | random, regenerated on every start unless set (sessions end on restart) |
+| `CACHE_ENABLED` | Enable the SQLite cache. | `true` |
+| `DB_PATH` | SQLite cache file. | `./data/indexer-cache.db` |
+| `CACHE_TTL` | Search result cache TTL (min `1m`). | `15m` |
+| `LATEST_CACHE_TTL` | Latest-releases cache TTL (min `1h`). | `24h` |
+| `MAX_CACHE_SIZE_MB` | Cache size limit (min 10). | `500` |
+| `ENABLE_CRONJOBS` | Scheduled pre-fetch of latest releases (needs the cache). | `true` |
+| `MAX_CONCURRENT_SEARCHES` | Parallel tracker searches. Lower uses less memory but is slower. | `4` |
+| `MAX_FAILURES` | Consecutive failures before an indexer is disabled; `0` turns this off. | `5` |
+| `REQUEST_TIMEOUT` | HTTP server/request timeout (min `1s`). | `20s` |
+| `DEFAULT_API_LIMIT` | Results returned to clients that don't paginate. | `100` |
+| `FLARESOLVERR_URL` | FlareSolverr-compatible endpoint (Parasol or FlareSolverr), e.g. `http://parasol:8191`. | empty |
+| `SKIP_TLS_VERIFY` | Skip TLS certificate checks (insecure). | `false` |
+| `DEBUG` | Debug logging. | `false` |
 
-##  Components
+Per-indexer settings can also be set as `<KEY>_<SETTING>` in upper case, e.g. `HDSPACE_USERNAME` for the `username` setting of the indexer with key `hdspace`. These override the defaults in the YAML.
+
+The generated key and secret are 16 and 32 random bytes, hex-encoded. Pin `FLEXGET_API_KEY` if your clients store the Torznab URL.
+
+## Usage
 
 ### Web UI
 
-Navigate to the address where you're hosting Scarf (e.g., `http://localhost:8080`). You'll be prompted for the password you set with the `UI_PASSWORD` environment variable.
+Open `http://<host>:8080` and log in with `UI_PASSWORD`. Sections:
 
-The web UI has three main sections:
-
-* **Search**: Manually search across a single indexer or all of them at once.
-* **Logs**: View live logs from the application, useful for debugging.
-* **Status**: Check the status of each indexer, test them individually, and get the Torznab URL for Flexget, Sonarr, Radarr, etc.
+- **Search**: search one indexer or all of them.
+- **Logs**: live application logs.
+- **Status**: indexer health, per-indexer tests, settings, and the Torznab URL to copy.
 
 ### Torznab API
 
-To add Scarf to your media automation software:
+Add Scarf as a Torznab indexer in Sonarr, Radarr, FlexGet, etc.:
 
-1.  Go to the **Status** page in the Scarf web UI.
-2.  Find the indexer you want to add (or use the "all" indexer).
-3.  Click the "Copy Link" button to get the Torznab URL.
-4.  In your media automation software, add a new Torznab indexer and paste the URL.
+```
+http://<host>:8080/torznab/all?apikey=<FLEXGET_API_KEY>
+```
 
-The URL will look something like this: `http://your-scarf-address:8080/torznab/all?apikey=your_flexget_api_key`
+Use an indexer key instead of `all` for a single tracker. Other endpoints: `/torznab/<key>/api`, `/torznab/<key>/latest`, `/health`. Full list in [docs/api_endpoints.md](docs/api_endpoints.md).
 
----
+## Indexer definitions
 
-## 🧩 Indexer Definitions
+Each YAML file in `definitions/` describes one site. Full schema: [docs/indexer_definition_structure.md](docs/indexer_definition_structure.md).
 
-Scarf's real power comes from its YAML-based definition files. You can find them in the `definitions` directory. Each file defines how to search a specific torrent site.
-
-### Example Definition (`bitsearch.yml`)
-
-This example demonstrates a modern two-step HTML scraper.
+### Example (two-step HTML scraper)
 
 ```yaml
 key: "bitsearch"
@@ -130,15 +138,15 @@ settings:
 search:
   type: "html"
   urls:
-    - "[https://bitsearch.to/search?q=](https://bitsearch.to/search?q=){{.Query}}&sort=seeders&order=desc"
+    - "https://bitsearch.to/search?q={{.Query}}&sort=seeders&order=desc"
   results:
     rows_selector: "div.space-y-4 > div.bg-white > div.items-start"
-    # This selector is for the second step: finding the magnet link on the details page.
+    # Second step: the magnet link on the details page.
     download_selector: "a[href^='magnet:?xt']@href"
     fields:
       title:
         selector: "h3 > a"
-      # This tells the app where to go for the second step.
+      # Where to go for the second step.
       details_url:
         selector: "h3 > a@href"
       size:
@@ -163,60 +171,63 @@ category_mappings:
     torznab_cat: 5000
 ```
 
-### Adding a New Indexer
-1. Create a new .yml file in the definitions directory.
-2. Follow the structure of the existing definition files to define how to search the new site.
-3. Scarf will automatically detect the new file and load it. You don't even need to restart the container!
+Other top-level fields: `rate_limit`, `login`, `categories`, `health_check`.
 
-For more complex sites, you can use the details_url and download_selector fields to perform a two-step search, where Scarf first finds a details page and then extracts the magnet link from that page.
+### Adding an indexer
 
-## Tip: Running on low-end devices
-Here are some tips for running Scarf in memory-constrained devices:
-- Disable the jobs that cache latest releases (`ENABLE_CRONJOBS=false`)
-- Indexer definitions are kept in memory, so delete all indexers except the ones you are really going to use (4 or 5)
-- Lower the maximum number of concurrent searches (`MAX_CONCURRENT_SEARCHES=2"`)
-- If you don't need it, you can disable the web UI (`WEB_UI=false`)
-- Disable the debug output (`DEBUG=false`)
-- Reduce the cache size (`MAX_CACHE_SIZE_MB=10`)
-- As a last resort, disable cache globally to reduce memory usage (`CACHE_ENABLED=false`)
+1. Create a `.yml` file in the definitions directory.
+2. Follow the structure of an existing definition.
+3. Scarf detects the file and loads it without a restart.
 
-## Roadmap
+For sites that only show the magnet link on a details page, use `details_url` plus `download_selector` for a two-step search.
 
-- [X] Create a simple web ui
-- [X] Add authentication
-- [X] Add Docker support
-- [X] Create basic torznab-compatible api
-- [X] Add support for api-based trackers
-- [X] Add support for simple html scraping
-- [X] Add support for multi-step html scraping (for links in details page)
-- [X] Add multi-domain support for trackers
-- [X] Add a timeout for the /all endpoint
-- [X] Add support for private trackers
-  - [X] Add support for trackers with user / password authentication
-  - [X] Add dynamic config popup based on tracker-defined settings
-  - [X] Add support for sending custom headers
-- [X] Add support for FlareSolverr (experimental, untested)
-- [X] Add specific search modes (tv, movie, etc.)
-- [X] Store the results in a cache
-- [X] Automatically disable failing indexers
-- [X] Add an statistics tab to the UI
-- [X] Make it possible to completely disable the cache
-- [X] Limit concurrent searches (configurable via env var)
-- [X] Add recent searches to the UI
-- [X] Implement custom rate limiting for trackers (currently there's a hardcoded 5 seconds wait between requests)
-- [X] Add custom server-side filtering (i.e. "&min_seeders=5" or "&min_size=1GB")
-- [X] Add custom server-side sorting (i.e. "&sort=size&order=desc")
-  - [X] Make sorting per seeders/desc the default
-- [ ] Implement custom timeouts for trackers (curerntly there's a hardcoded 30s timeout for all indexers)
-- [ ] Add notifications for health checks (webhooks, pushbullet)
-- [ ] Dynamic search modes list for "/all" endpoint (automatically ignore indexers that don't have the requested search modes
-- [ ] Lightweight Cloudflare solver without a browser, based on [cfsolve](https://github.com/chris124567/cfsolve)
-  - Tested 2026-11-05: solved btdirectory, eztv, uindex and tokyotosho in 6-11 s, ~124 MB peak (FlareSolverr: ~722 MB). Its `cf_clearance` plus the profile's User-Agent works from a plain HTTP client.
-  - Plan: a small Rust sidecar using cfsolve as a library that speaks FlareSolverr's `/v1` API, so Scarf only needs `FLARESOLVERR_URL` pointed at it
-  - Cache `cf_clearance` per domain in the sidecar and only re-solve when a site serves the challenge again
-  - Fetch pages with the same Safari TLS fingerprint the cookie was issued to
-  - Ship as an optional MangoStack service (own compose profile, off by default); FlareSolverr stays an option for bigger hosts
-  - Caveats: single Safari iOS profile, breaks with `Error::Unsupported` when Cloudflare changes the challenge until the profile is updated; cookie is bound to IP and User-Agent
+### Tips for low-end devices
 
+- Disable the latest-releases jobs (`ENABLE_CRONJOBS=false`).
+- Keep only the definitions you use (4 or 5); all loaded definitions stay in memory.
+- Lower concurrent searches (`MAX_CONCURRENT_SEARCHES=2`).
+- Disable the web UI if you don't need it (`WEB_UI=false`).
+- Keep debug output off (`DEBUG=false`).
+- Reduce the cache size (`MAX_CACHE_SIZE_MB=10`).
+- As a last resort, disable the cache (`CACHE_ENABLED=false`).
+- `GOGC=50` (as in the bundled `docker-compose.yaml`) lowers peak memory at some CPU cost.
 
+## Building from source
 
+```bash
+go build -trimpath -o scarf .
+./scarf
+```
+
+Requires Go 1.27 (see `go.mod`). Run from the repo root so `./definitions` and `./web` are found, or set `DEFINITIONS_PATH`.
+
+## Limits
+
+- Do not expose Scarf to the internet; it assumes a trusted LAN. The default `UI_PASSWORD` is weak and the API key travels in the URL.
+- Outbound tracker requests use a fixed 20 s client timeout; per-tracker timeouts are not configurable.
+- Definitions break when sites change their HTML; `tools/check` probes every tracker (run weekly in CI).
+- Cloudflare-protected sites need Parasol or FlareSolverr.
+
+### Planned
+
+- Per-tracker timeouts.
+- Health-check notifications (webhooks, Pushbullet).
+- Skip indexers without the requested search mode on `/torznab/all`.
+
+## Part of MangoStack
+
+| App | Role |
+|---|---|
+| [Scarf](https://github.com/pixelotes/scarf) | Indexer proxy (Torznab) |
+| [Parasol](https://github.com/pixelotes/parasol) | Optional Cloudflare solver for Scarf |
+| [Reel](https://github.com/pixelotes/reel) | Movie & TV automation |
+| [Tango](https://github.com/pixelotes/tango) | Web UI and REST API for aria2c |
+| [RMS](https://github.com/pixelotes/rms) | Media server (Jellyfin API) |
+| [Suika](https://github.com/pixelotes/suika) | Manga reader |
+| [Kaze](https://github.com/pixelotes/kaze) | Music server (Subsonic API) |
+| [Sumi](https://github.com/pixelotes/sumi) | EPUB reader |
+| [Dashboarr](https://github.com/pixelotes/dashboarr) | Homepage |
+
+## License
+
+MIT
