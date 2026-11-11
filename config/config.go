@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +32,10 @@ type ConfigOptions struct {
 	MaxFailures           int
 	CacheEnabled          bool
 	MaxConcurrentSearches int
+	DataDir               string
+	StateFile             string
+	UpstreamEnabled       bool
+	UpstreamURL           string
 }
 
 // GetConfig loads and validates all configuration from environment variables
@@ -55,7 +60,11 @@ func GetConfig() (*ConfigOptions, error) {
 		MaxFailures:           GetEnvAsInt("MAX_FAILURES", 5),
 		CacheEnabled:          GetEnvAsBool("CACHE_ENABLED", true),
 		MaxConcurrentSearches: GetEnvAsInt("MAX_CONCURRENT_SEARCHES", 4),
+		DataDir:               GetEnv("DATA_DIR", "./data"),
+		UpstreamEnabled:       GetEnvAsBool("UPSTREAM_SYNC", true),
+		UpstreamURL:           GetEnv("UPSTREAM_URL", "https://github.com/Prowlarr/Indexers/archive/refs/heads/master.tar.gz"),
 	}
+	config.StateFile = GetEnv("STATE_FILE", filepath.Join(config.DataDir, "indexers.yml"))
 
 	// Validate configuration
 	if err := config.Validate(); err != nil {
@@ -121,6 +130,7 @@ func (c *ConfigOptions) PrintConfig() {
 	fmt.Printf("Database Path: %s\n", c.DBPath)
 	fmt.Printf("Default API Limit: %d\n", c.DefaultAPILimit)
 	fmt.Printf("Web UI Enabled: %t\n", c.WebUIEnabled)
+	fmt.Printf("Upstream Catalog: %t\n", c.UpstreamEnabled)
 	fmt.Printf("Debug Mode: %t\n", c.DebugMode)
 	fmt.Printf("UI Password: %s\n", maskSensitive(c.UIPassword))
 	fmt.Printf("Flexget API Key: %s\n", maskSensitive(c.FlexgetAPIKey))
@@ -151,6 +161,10 @@ Storage & Caching:
   DEFINITIONS_PATH=./definitions   Path to indexer definition files
   DB_PATH=./data/cache.db         SQLite database file path
   CACHE_ENABLED=true              Enable or disable caching (true/false)
+  DATA_DIR=./data                 Directory for indexers.yml and the upstream catalog
+  STATE_FILE=$DATA_DIR/indexers.yml  Enabled flags and indexer settings
+  UPSTREAM_SYNC=true              Enable the upstream (Prowlarr) definitions catalog
+  UPSTREAM_URL=<Prowlarr tarball> Tarball to download upstream definitions from
   CACHE_TTL=15m                   Cache time-to-live (e.g., 10m, 1h)
   MAX_CACHE_SIZE_MB=500           Maximum cache size in megabytes
 

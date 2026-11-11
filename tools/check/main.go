@@ -46,7 +46,7 @@ func main() {
 	// Silence the manager's slog output so it doesn't pollute the JSON on stdout.
 	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	mgr, err := indexer.NewManager("./definitions", 0)
+	mgr, err := indexer.NewManager("./definitions", 0, indexer.ManagerOptions{})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "failed to load definitions:", err)
 		os.Exit(1)

@@ -39,14 +39,6 @@ var (
 	dateTimeRegex   = regexp.MustCompile(`\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}`)
 )
 
-var (
-	yamlBufferPool = sync.Pool{
-		New: func() interface{} {
-			return new(bytes.Buffer)
-		},
-	}
-)
-
 // Response body size limits to prevent DoS attacks via memory exhaustion
 const (
 	// MaxJSONResponseSize is the maximum size for JSON API responses (50MB)
@@ -99,6 +91,23 @@ type Manager struct {
 	failureTimestamps    map[string][]time.Time
 	lastRequest          map[string]time.Time
 	maxFailures          int
+	state                *StateStore
+	upstreamDir          string
+	upstreamURL          string
+	upstreamMu           sync.Mutex // one catalog sync at a time
+	catalog              []CatalogEntry
+}
+
+// ManagerOptions holds optional manager settings.
+type ManagerOptions struct {
+	// StatePath is the indexers.yml file with enabled flags and settings.
+	// Empty keeps them in memory only.
+	StatePath string
+	// UpstreamDir holds downloaded upstream definitions. Empty disables
+	// the upstream catalog.
+	UpstreamDir string
+	// UpstreamURL is the tarball to download the catalog from.
+	UpstreamURL string
 }
 
 // newHttpClient creates a new HTTP client with our logging transport and custom TLS settings.
@@ -133,7 +142,11 @@ func newHttpClient(jar http.CookieJar) *http.Client {
 }
 
 // NewManager creates a manager and loads definitions from a given path
-func NewManager(definitionsPath string, maxFailures int) (*Manager, error) {
+func NewManager(definitionsPath string, maxFailures int, opts ManagerOptions) (*Manager, error) {
+	state, err := NewStateStore(opts.StatePath)
+	if err != nil {
+		return nil, err
+	}
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create file watcher: %w", err)
@@ -158,6 +171,9 @@ func NewManager(definitionsPath string, maxFailures int) (*Manager, error) {
 		failureTimestamps:    make(map[string][]time.Time),
 		lastRequest:          make(map[string]time.Time),
 		maxFailures:          maxFailures,
+		state:                state,
+		upstreamDir:          opts.UpstreamDir,
+		upstreamURL:          opts.UpstreamURL,
 	}
 
 	if err := m.Reload(); err != nil {
@@ -436,12 +452,24 @@ func (m *Manager) Reload() error {
 			return err
 		}
 		if !info.IsDir() && (strings.HasSuffix(info.Name(), ".yml") || strings.HasSuffix(info.Name(), ".yaml")) {
-			if err := m.loadDefinition(path); err != nil {
+			if err := m.loadDefinition(path, SourceLocal); err != nil {
 				slog.Warn("Skipping definition file due to error", "file", info.Name(), "error", err)
 			}
 		}
 		return nil
 	})
+	// Upstream definitions are parsed only when enabled. A local file with
+	// the same key wins.
+	for _, key := range m.state.EnabledKeys() {
+		if _, ok := m.Indexers[key]; ok {
+			continue
+		}
+		if path := m.upstreamFile(key); path != "" {
+			if err := m.loadDefinition(path, SourceUpstream); err != nil {
+				slog.Warn("Skipping upstream definition due to error", "indexer", key, "error", err)
+			}
+		}
+	}
 
 	callback := m.reloadCallback
 	count := len(m.Indexers)
@@ -459,7 +487,7 @@ func (m *Manager) Reload() error {
 }
 
 // loadDefinition loads a single definition file and populates its UserConfig.
-func (m *Manager) loadDefinition(path string) error {
+func (m *Manager) loadDefinition(path, source string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("could not read file: %w", err)
@@ -476,10 +504,23 @@ func (m *Manager) loadDefinition(path string) error {
 		return fmt.Errorf("could not parse yaml: %w", err)
 	}
 
+	def.Source = source
+
 	// Initialize UserConfig and populate from settings defaults
 	def.UserConfig = make(map[string]string)
 	for _, setting := range def.Settings {
 		def.UserConfig[setting.Name] = setting.Default
+	}
+
+	// The user's choices in indexers.yml override what the definition file
+	// says (older Scarf versions wrote them into the file).
+	if st, ok := m.state.Get(def.Key); ok {
+		if st.Enabled != nil {
+			def.Enabled = Bool(*st.Enabled)
+		}
+		for k, v := range st.Settings {
+			def.UserConfig[k] = v
+		}
 	}
 
 	// Override UserConfig with any environment variables
@@ -549,185 +590,64 @@ func (m *Manager) Close() error {
 func (m *Manager) UpdateIndexerUserConfig(key string, config map[string]string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.authClients, key) // credentials may have changed: sign in again
-
-	filePath := m.findIndexerFile(key)
-	if filePath == "" {
-		return fmt.Errorf("definition file for %s not found", key)
-	}
-
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return fmt.Errorf("could not read definition file: %w", err)
-	}
-
-	var node yaml.Node
-	if err := yaml.Unmarshal(data, &node); err != nil {
-		return fmt.Errorf("could not unmarshal yaml: %w", err)
-	}
-
-	// Traverse the YAML to find the 'settings' block
-	settingsNode := findNodeByKey(&node, "settings")
-	if settingsNode == nil || settingsNode.Kind != yaml.SequenceNode {
-		return fmt.Errorf("'settings' block not found or not a sequence in %s", key)
-	}
-
-	// Iterate through each setting in the settings block
-	written := map[string]bool{}
-	for _, settingNode := range settingsNode.Content {
-		if settingNode.Kind != yaml.MappingNode {
-			continue
-		}
-		settingName := findNodeValueByKey(settingNode, "name")
-		if newValue, ok := config[settingName]; ok {
-			// Find the 'default' key and update its value
-			updateNodeValueByKey(settingNode, "default", newValue)
-			written[settingName] = true
-		}
-	}
-	// Settings Scarf adds on load (use_flaresolverr on Cardigann definitions)
-	// are not in the file yet; append them so the value survives a reload.
-	if def, ok := m.Indexers[key]; ok {
-		for _, s := range def.Settings {
-			v, ok := config[s.Name]
-			if !ok || written[s.Name] {
-				continue
-			}
-			n := &yaml.Node{Kind: yaml.MappingNode}
-			updateNodeValueByKey(n, "name", s.Name)
-			updateNodeValueByKey(n, "type", s.Type)
-			updateNodeValueByKey(n, "label", s.Label)
-			updateNodeValueByKey(n, "default", v)
-			settingsNode.Content = append(settingsNode.Content, n)
-		}
-	}
-
-	// Get a buffer from the pool
-	buf := yamlBufferPool.Get().(*bytes.Buffer)
-	buf.Reset()                   // Ensure the buffer is empty before use
-	defer yamlBufferPool.Put(buf) // Return the buffer to the pool when done
-
-	encoder := yaml.NewEncoder(buf)
-	encoder.SetIndent(2)
-	if err := encoder.Encode(&node); err != nil {
-		return fmt.Errorf("could not marshal yaml: %w", err)
-	}
-
-	if err := os.WriteFile(filePath, buf.Bytes(), 0644); err != nil {
-		return fmt.Errorf("could not write definition file: %w", err)
-	}
-	return nil
-}
-
-// findIndexerFile locates the YAML file for a given indexer key.
-func (m *Manager) findIndexerFile(key string) string {
-	for _, ext := range []string{".yml", ".yaml"} {
-		filePath := filepath.Join(m.definitionsPath, key+ext)
-		if _, err := os.Stat(filePath); err == nil {
-			return filePath
-		}
-	}
-	return ""
-}
-
-// ToggleIndexerEnabled updates the enabled status of an indexer and saves it to the definition file.
-// This function minimizes lock contention by only holding the mutex for in-memory operations.
-func (m *Manager) ToggleIndexerEnabled(key string, enabled bool) error {
-	// Step 1: Acquire lock only to read the definition and find the file path
-	m.mu.RLock()
-	_, ok := m.Indexers[key]
+	def, ok := m.Indexers[key]
 	if !ok {
-		m.mu.RUnlock()
 		return fmt.Errorf("indexer not found: %s", key)
 	}
-	// findIndexerFile only does os.Stat which is safe with RLock
-	filePath := m.findIndexerFile(key)
-	m.mu.RUnlock()
-
-	if filePath == "" {
-		return fmt.Errorf("definition file for %s not found", key)
+	secret := map[string]bool{}
+	for _, s := range def.Settings {
+		if s.Type == "password" {
+			secret[s.Name] = true
+		}
 	}
-
-	// Step 2: Perform all I/O operations WITHOUT holding the lock
-	// This prevents blocking other goroutines during slow file operations
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return fmt.Errorf("could not read definition file: %w", err)
+	changes := map[string]string{}
+	for k, v := range config {
+		if secret[k] && v == "" {
+			continue // the UI never receives saved passwords: empty means unchanged
+		}
+		changes[k] = v
 	}
-
-	var node yaml.Node
-	if err := yaml.Unmarshal(data, &node); err != nil {
-		return fmt.Errorf("could not unmarshal yaml: %w", err)
+	if err := m.state.SetSettings(key, changes); err != nil {
+		return fmt.Errorf("could not save settings: %w", err)
 	}
-
-	if rootNode := node.Content[0]; rootNode.Kind == yaml.MappingNode {
-		updateNodeValueByKey(rootNode, "enabled", strconv.FormatBool(enabled))
+	for k, v := range changes {
+		def.UserConfig[k] = v
 	}
+	delete(m.authClients, key) // credentials may have changed: sign in again
+	slog.Info("Indexer settings updated", "indexer", key)
+	return nil
+}
 
-	var buf bytes.Buffer
-	encoder := yaml.NewEncoder(&buf)
-	encoder.SetIndent(2)
-	if err := encoder.Encode(&node); err != nil {
-		return fmt.Errorf("could not marshal yaml: %w", err)
-	}
-
-	if err := os.WriteFile(filePath, buf.Bytes(), 0644); err != nil {
-		return fmt.Errorf("could not write definition file: %w", err)
-	}
-
-	// Step 3: Only acquire write lock to update the in-memory state
-	// This is very fast and minimizes lock contention
+// ToggleIndexerEnabled enables or disables an indexer and records it in the
+// state file. Enabling an upstream definition loads it; disabling it unloads it.
+func (m *Manager) ToggleIndexerEnabled(key string, enabled bool) error {
 	m.mu.Lock()
-	// Double-check the definition still exists (it might have been reloaded)
-	if def, ok := m.Indexers[key]; ok {
+	defer m.mu.Unlock()
+	def, loaded := m.Indexers[key]
+	upstream := m.upstreamFile(key)
+	if !loaded && (!enabled || upstream == "") {
+		return fmt.Errorf("indexer not found: %s", key)
+	}
+	if err := m.state.SetEnabled(key, enabled); err != nil {
+		return fmt.Errorf("could not save state: %w", err)
+	}
+	switch {
+	case !loaded:
+		if err := m.loadDefinition(upstream, SourceUpstream); err != nil {
+			_ = m.state.SetEnabled(key, false)
+			return err
+		}
+	case !enabled && def.Source == SourceUpstream:
+		delete(m.Indexers, key) // free the memory; enabling loads it again
+		delete(m.authClients, key)
+	default:
 		def.Enabled = Bool(enabled)
 	}
-	m.mu.Unlock()
-
 	slog.Info("Indexer enabled status updated", "indexer", key, "enabled", enabled)
-	return nil
-}
-
-// --- YAML Node Helpers ---
-func findNodeByKey(node *yaml.Node, key string) *yaml.Node {
-	if node.Kind == yaml.DocumentNode {
-		node = node.Content[0]
-	}
-	if node.Kind != yaml.MappingNode {
-		return nil
-	}
-	for i := 0; i < len(node.Content); i += 2 {
-		if node.Content[i].Value == key {
-			return node.Content[i+1]
-		}
+	if m.reloadCallback != nil {
+		go m.reloadCallback()
 	}
 	return nil
-}
-
-func findNodeValueByKey(node *yaml.Node, key string) string {
-	if valueNode := findNodeByKey(node, key); valueNode != nil {
-		return valueNode.Value
-	}
-	return ""
-}
-
-func updateNodeValueByKey(node *yaml.Node, key, value string) {
-	if node.Kind != yaml.MappingNode {
-		return
-	}
-	for i := 0; i < len(node.Content); i += 2 {
-		if node.Content[i].Value == key {
-			// Get the value node and update it
-			valueNode := node.Content[i+1]
-			valueNode.SetString(value)
-			// Force the encoder to use double quotes
-			valueNode.Style = yaml.DoubleQuotedStyle
-			return
-		}
-	}
-	// If key doesn't exist, add it with the correct style
-	node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key})
-	node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value, Style: yaml.DoubleQuotedStyle})
 }
 
 // authenticate handles the login process for a tracker.

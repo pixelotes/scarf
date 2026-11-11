@@ -107,7 +107,8 @@ type Definition struct {
 	Schedule         string            `yaml:"schedule" json:"-"`
 	RateLimit        time.Duration     `yaml:"rate_limit,omitempty" json:"-"`
 	Settings         []UserSetting     `yaml:"settings" json:"settings,omitempty"` // Defines the settings form
-	UserConfig       map[string]string `yaml:"-" json:"user_config"`               // Holds the user's saved values
+	UserConfig       map[string]string `yaml:"-" json:"user_config"`
+	Source           string            `yaml:"-" json:"source"` // SourceLocal or SourceUpstream               // Holds the user's saved values
 	Login            LoginDefinition   `yaml:"login" json:"-"`
 	Search           SearchDefinition  `yaml:"search" json:"-"`
 	Categories       map[string]string `yaml:"categories" json:"-"`
@@ -147,6 +148,12 @@ type SearchResult struct {
 	IndexerKey string `json:"IndexerKey,omitempty"`
 	Proxied    bool   `json:"Proxied,omitempty"`
 }
+
+// Where a definition was loaded from.
+const (
+	SourceLocal    = "local"    // the definitions directory
+	SourceUpstream = "upstream" // the downloaded upstream catalog
+)
 
 // SearchParams holds all possible search parameters from Torznab requests
 type SearchParams struct {

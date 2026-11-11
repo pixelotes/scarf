@@ -18,7 +18,7 @@ What pushes memory up:
 - **Cron jobs** (`ENABLE_CRONJOBS`, default on): each indexer's `schedule` fetches its latest releases into the cache. Only runs when the cache is enabled too.
 - **Cache** (`CACHE_ENABLED`, `MAX_CACHE_SIZE_MB`): SQLite cache; a bigger limit means more data held and touched.
 - **Web UI** (`WEB_UI`): adds the authenticated API, the log WebSocket and stats.
-- **Loaded definitions**: every definition in `DEFINITIONS_PATH` is kept in memory.
+- **Loaded definitions**: every definition in `DEFINITIONS_PATH` is kept in memory. From the Prowlarr catalog, only enabled indexers are loaded.
 - **Concurrent searches** (`MAX_CONCURRENT_SEARCHES`): more parallel tracker requests during a search.
 
 CPU is negligible at idle; searches are network-bound.
@@ -26,7 +26,8 @@ CPU is negligible at idle; searches are network-bound.
 Disk writes:
 
 - The SQLite cache at `DB_PATH`, only when `CACHE_ENABLED=true`. With the cache off, no database is opened.
-- The definition YAML files, when you toggle an indexer or save its settings from the web UI.
+- `indexers.yml` in `DATA_DIR`, when you toggle an indexer or save its settings. Definition files are never modified.
+- The Prowlarr catalog in `DATA_DIR/upstream` (about 5 MB), only when you press "Update catalog".
 
 ## Features
 
@@ -88,11 +89,15 @@ All configuration is through environment variables (`config/config.go`). The eff
 | `MAX_FAILURES` | Consecutive failures before an indexer is disabled; `0` turns this off. | `5` |
 | `REQUEST_TIMEOUT` | HTTP server/request timeout (min `1s`). | `20s` |
 | `DEFAULT_API_LIMIT` | Results returned to clients that don't paginate. | `100` |
+| `DATA_DIR` | Directory for `indexers.yml` and the downloaded catalog. | `./data` |
+| `STATE_FILE` | Enabled flags and indexer settings, including credentials (written with mode 0600). | `$DATA_DIR/indexers.yml` |
+| `UPSTREAM_SYNC` | Enable the Prowlarr definitions catalog in the web UI. | `true` |
+| `UPSTREAM_URL` | Tarball the catalog is downloaded from. | Prowlarr/Indexers `master` |
 | `FLARESOLVERR_URL` | FlareSolverr-compatible endpoint (Parasol or FlareSolverr), e.g. `http://parasol:8191`. | empty |
 | `SKIP_TLS_VERIFY` | Skip TLS certificate checks (insecure). | `false` |
 | `DEBUG` | Debug logging. | `false` |
 
-Per-indexer settings can also be set as `<KEY>_<SETTING>` in upper case, e.g. `HDSPACE_USERNAME` for the `username` setting of the indexer with key `hdspace`. These override the defaults in the YAML.
+Per-indexer settings can also be set as `<KEY>_<SETTING>` in upper case, e.g. `HDSPACE_USERNAME` for the `username` setting of the indexer with key `hdspace`. These override the defaults in the YAML and the values saved in `indexers.yml`.
 
 The generated key and secret are 16 and 32 random bytes, hex-encoded. Pin `FLEXGET_API_KEY` if your clients store the Torznab URL.
 

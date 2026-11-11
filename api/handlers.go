@@ -362,6 +362,7 @@ type IndexerDetail struct {
 	Type             string                    `json:"type"`
 	Description      string                    `json:"description"`
 	Enabled          bool                      `json:"enabled"`
+	Source           string                    `json:"source"`
 	Settings         []indexer.UserSetting     `json:"settings,omitempty"`
 	UserConfig       map[string]string         `json:"user_config"`
 	CategoryMappings []indexer.CategoryMapping `json:"category_mappings"`
@@ -385,8 +386,9 @@ func (h *APIHandler) ListIndexers(w http.ResponseWriter, r *http.Request) {
 			Type:             def.Type,
 			Description:      def.Description,
 			Enabled:          bool(def.Enabled),
+			Source:           def.Source,
 			Settings:         def.Settings,
-			UserConfig:       def.UserConfig,
+			UserConfig:       maskSecrets(def),
 			CategoryMappings: def.CategoryMappings,
 			Categories:       cats,
 		}
@@ -394,6 +396,25 @@ func (h *APIHandler) ListIndexers(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// maskSecrets returns an indexer's settings without the values of password
+// fields: the UI shows them as set or not set, and an empty value sent back
+// means "unchanged".
+func maskSecrets(def *indexer.Definition) map[string]string {
+	out := make(map[string]string, len(def.UserConfig))
+	for k, v := range def.UserConfig {
+		out[k] = v
+	}
+	for _, s := range def.Settings {
+		if s.Type == "password" {
+			if out[s.Name] != "" {
+				out[s.Name] = ""
+				out[s.Name+".set"] = "true"
+			}
+		}
+	}
+	return out
 }
 
 // ToggleIndexerPayload is the struct for the toggle request
@@ -422,12 +443,6 @@ func (h *APIHandler) UpdateIndexerConfig(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Explicitly trigger a reload after saving the configuration.
-	if err := h.Manager.Reload(); err != nil {
-		slog.Error("Failed to reload definitions after config update", "key", payload.Key, "error", err)
-	}
-
-	slog.Info("Successfully updated indexer config and triggered reload", "key", payload.Key)
 	w.WriteHeader(http.StatusOK)
 }
 
