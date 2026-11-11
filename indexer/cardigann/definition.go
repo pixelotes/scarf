@@ -1,0 +1,227 @@
+// Package cardigann loads and runs indexer definitions written in the
+// Cardigann format used by Jackett and Prowlarr.
+//
+// This is the phase 1 prototype described in docs/cardigann_migration_plan.md:
+// HTML search for public indexers. Login, JSON responses and the download
+// block are rejected at load time so a definition never half-works.
+package cardigann
+
+import (
+	"fmt"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Definition is a parsed Cardigann definition. Only the parts the prototype
+// executes are modelled; unknown keys are ignored.
+type Definition struct {
+	ID           string    `yaml:"id"`
+	Name         string    `yaml:"name"`
+	Description  string    `yaml:"description"`
+	Language     string    `yaml:"language"`
+	Type         string    `yaml:"type"`
+	Encoding     string    `yaml:"encoding"`
+	RequestDelay float64   `yaml:"requestDelay"`
+	Links        []string  `yaml:"links"`
+	Caps         Caps      `yaml:"caps"`
+	Settings     []Setting `yaml:"settings"`
+	Login        yaml.Node `yaml:"login"`
+	Download     yaml.Node `yaml:"download"`
+	Search       Search    `yaml:"search"`
+}
+
+// Caps holds the indexer's category mappings and search modes.
+type Caps struct {
+	CategoryMappings []CategoryMapping   `yaml:"categorymappings"`
+	Modes            map[string][]string `yaml:"modes"`
+}
+
+// CategoryMapping maps a site category ID to a Torznab category name such as "TV/Anime".
+type CategoryMapping struct {
+	ID   string `yaml:"id"`
+	Cat  string `yaml:"cat"`
+	Desc string `yaml:"desc"`
+}
+
+// Setting is one user-configurable value.
+type Setting struct {
+	Name    string            `yaml:"name"`
+	Type    string            `yaml:"type"`
+	Label   string            `yaml:"label"`
+	Default string            `yaml:"default"`
+	Options map[string]string `yaml:"options"`
+}
+
+// Search describes how to query the site and parse its results.
+type Search struct {
+	Paths           []Path            `yaml:"paths"`
+	Path            string            `yaml:"path"` // older single-path form
+	Inputs          map[string]string `yaml:"inputs"`
+	Headers         map[string]any    `yaml:"headers"`
+	KeywordsFilters []Filter          `yaml:"keywordsfilters"`
+	Rows            Rows              `yaml:"rows"`
+	Fields          Fields            `yaml:"fields"`
+}
+
+// Path is one request made for a search.
+type Path struct {
+	Path          string            `yaml:"path"`
+	Method        string            `yaml:"method"`
+	Inputs        map[string]string `yaml:"inputs"`
+	InheritInputs *bool             `yaml:"inheritinputs"`
+	Categories    []string          `yaml:"categories"`
+	Response      struct {
+		Type string `yaml:"type"`
+	} `yaml:"response"`
+}
+
+// Rows selects the result rows.
+type Rows struct {
+	Selector    string    `yaml:"selector"`
+	After       int       `yaml:"after"`
+	Remove      string    `yaml:"remove"`
+	Filters     []Filter  `yaml:"filters"`
+	DateHeaders yaml.Node `yaml:"dateheaders"`
+}
+
+// Field extracts one value from a row.
+type Field struct {
+	Name      string
+	Selector  string            `yaml:"selector"`
+	Attribute string            `yaml:"attribute"`
+	Remove    string            `yaml:"remove"`
+	Text      *string           `yaml:"text"`
+	Optional  bool              `yaml:"optional"`
+	Default   *string           `yaml:"default"`
+	Case      map[string]string `yaml:"case"`
+	Filters   []Filter          `yaml:"filters"`
+}
+
+// Fields keeps the YAML order: later fields may read earlier ones via .Result.
+type Fields []Field
+
+// UnmarshalYAML decodes the fields mapping in document order.
+func (f *Fields) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind != yaml.MappingNode {
+		return fmt.Errorf("fields: expected a mapping")
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		var fld Field
+		if err := n.Content[i+1].Decode(&fld); err != nil {
+			return fmt.Errorf("field %q: %w", n.Content[i].Value, err)
+		}
+		fld.Name = n.Content[i].Value
+		*f = append(*f, fld)
+	}
+	return nil
+}
+
+// Filter is a named transformation with arguments.
+type Filter struct {
+	Name string
+	Args []string
+}
+
+// UnmarshalYAML accepts args as a scalar or a list of scalars.
+func (f *Filter) UnmarshalYAML(n *yaml.Node) error {
+	var raw struct {
+		Name string    `yaml:"name"`
+		Args yaml.Node `yaml:"args"`
+	}
+	if err := n.Decode(&raw); err != nil {
+		return err
+	}
+	f.Name = raw.Name
+	switch raw.Args.Kind {
+	case 0:
+	case yaml.ScalarNode:
+		f.Args = []string{raw.Args.Value}
+	case yaml.SequenceNode:
+		for _, a := range raw.Args.Content {
+			f.Args = append(f.Args, a.Value)
+		}
+	default:
+		return fmt.Errorf("filter %q: unsupported args", raw.Name)
+	}
+	return nil
+}
+
+// Parse decodes and validates a definition. It returns an error when the
+// definition needs a feature the prototype does not run yet.
+func Parse(data []byte) (*Definition, error) {
+	var d Definition
+	if err := yaml.Unmarshal(data, &d); err != nil {
+		return nil, fmt.Errorf("could not parse yaml: %w", err)
+	}
+	if d.ID == "" || len(d.Links) == 0 {
+		return nil, fmt.Errorf("not a Cardigann definition: id and links are required")
+	}
+	if d.Search.Path != "" && len(d.Search.Paths) == 0 {
+		d.Search.Paths = []Path{{Path: d.Search.Path}}
+	}
+	if err := d.checkSupported(); err != nil {
+		return nil, fmt.Errorf("%s: %w", d.ID, err)
+	}
+	return &d, nil
+}
+
+// IsCardigann reports whether data looks like a Cardigann definition rather
+// than Scarf's own format: Cardigann has top-level "id" and "links", Scarf has "key".
+func IsCardigann(data []byte) bool {
+	var probe struct {
+		ID    string   `yaml:"id"`
+		Key   string   `yaml:"key"`
+		Links []string `yaml:"links"`
+	}
+	if err := yaml.Unmarshal(data, &probe); err != nil {
+		return false
+	}
+	return probe.Key == "" && probe.ID != "" && len(probe.Links) > 0
+}
+
+func (d *Definition) checkSupported() error {
+	var missing []string
+	if d.Login.Kind != 0 {
+		missing = append(missing, "login")
+	}
+	if d.Download.Kind != 0 {
+		missing = append(missing, "download block")
+	}
+	if d.Search.Rows.DateHeaders.Kind != 0 {
+		missing = append(missing, "rows.dateheaders")
+	}
+	for _, f := range d.Search.Rows.Filters {
+		if f.Name != "andmatch" {
+			missing = append(missing, "rows filter "+f.Name)
+		}
+	}
+	if len(d.Search.Paths) == 0 {
+		missing = append(missing, "search.paths (none defined)")
+	}
+	for _, p := range d.Search.Paths {
+		if t := p.Response.Type; t != "" && t != "html" {
+			missing = append(missing, "response type "+t)
+			break
+		}
+	}
+	unknown := map[string]bool{}
+	check := func(fs []Filter) {
+		for _, f := range fs {
+			if _, ok := filters[f.Name]; !ok {
+				unknown[f.Name] = true
+			}
+		}
+	}
+	check(d.Search.KeywordsFilters)
+	for _, f := range d.Search.Fields {
+		check(f.Filters)
+	}
+	for name := range unknown {
+		missing = append(missing, "filter "+name)
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("unsupported in this Scarf version: %s", strings.Join(missing, ", "))
+	}
+	return nil
+}

@@ -1,6 +1,7 @@
 package indexer
 
 import (
+	"go-indexer/indexer/cardigann"
 	"strconv"
 	"time"
 
@@ -112,6 +113,10 @@ type Definition struct {
 	Categories       map[string]string `yaml:"categories" json:"-"`
 	CategoryMappings []CategoryMapping `yaml:"category_mappings" json:"category_mappings"`
 	HealthCheck      HealthCheck       `yaml:"health_check,omitempty" json:"-"`
+
+	// Cardigann is set when the definition was written in the Cardigann
+	// (Jackett/Prowlarr) format; searches then run through that engine.
+	Cardigann *cardigann.Definition `yaml:"-" json:"-"`
 }
 
 // HealthCheck configures how the tracker is probed by tools/check. All fields
