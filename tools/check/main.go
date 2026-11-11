@@ -1,10 +1,9 @@
 // check probes every tracker definition and emits a JSON report on stdout.
 // Designed to be run from CI (see .github/workflows/tracker-status.yaml).
 //
-// All trackers are tested regardless of `enabled:` — most ship disabled by
-// default. Trackers with `health_check.requires_auth: true` are not searched
-// (we have no credentials in CI); we just probe the host and mark them yellow
-// if reachable. Trackers with `health_check.skip: true` are skipped entirely.
+// All trackers are tested regardless of whether they are enabled. Trackers
+// with a login block are not searched (we have no credentials in CI); we just
+// probe the host and mark them yellow if reachable.
 package main
 
 import (
@@ -24,11 +23,11 @@ import (
 )
 
 const (
-	defaultQuery   = "1080p"
-	probeUA        = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
-	searchTimeout  = 30 * time.Second
-	probeTimeout   = 15 * time.Second
-	maxConcurrent  = 4
+	defaultQuery  = "1080p"
+	probeUA       = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
+	searchTimeout = 30 * time.Second
+	probeTimeout  = 15 * time.Second
+	maxConcurrent = 4
 )
 
 type Result struct {
@@ -85,26 +84,16 @@ func main() {
 
 func check(mgr *indexer.Manager, def *indexer.Definition) (r Result) {
 	r = Result{Key: def.Key, Name: def.Name, Enabled: bool(def.Enabled)}
-	hc := def.HealthCheck
-
-	if hc.Skip {
-		r.Status = "skipped"
-		r.Note = "skip: true in definition"
-		return
-	}
 
 	start := time.Now()
 	defer func() { r.LatencyMs = time.Since(start).Milliseconds() }()
 
-	if hc.RequiresAuth {
+	if def.Cardigann.NeedsLogin() {
 		r.Status, r.Note, r.Error = probeHost(def)
 		return r
 	}
 
-	query := hc.Query
-	if query == "" {
-		query = defaultQuery
-	}
+	query := defaultQuery
 
 	// Manager.Search rejects disabled indexers, but the check tool must probe
 	// every definition regardless. Flip the in-memory flag (the process is
@@ -143,13 +132,13 @@ func check(mgr *indexer.Manager, def *indexer.Definition) (r Result) {
 	return r
 }
 
-// probeHost issues a GET against the host root of the first search URL and
+// probeHost issues a GET against the host root of the first site link and
 // returns yellow if it responds 200 (best we can do without credentials).
 func probeHost(def *indexer.Definition) (status, note, errStr string) {
-	if len(def.Search.URLs) == 0 {
-		return "red", "", "no search URLs in definition"
+	if len(def.Cardigann.Links) == 0 {
+		return "red", "", "no links in definition"
 	}
-	u, err := url.Parse(def.Search.URLs[0])
+	u, err := url.Parse(def.Cardigann.Links[0])
 	if err != nil || u.Host == "" {
 		return "red", "", "could not parse search URL"
 	}

@@ -12,48 +12,21 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"sync"
-	"text/template"
 	"time"
 
-	"github.com/PuerkitoBio/goquery"
 	"github.com/fsnotify/fsnotify"
-	"github.com/google/uuid"
-	"github.com/tidwall/gjson"
-	"golang.org/x/net/html/charset"
-	"golang.org/x/net/publicsuffix"
-	"gopkg.in/yaml.v3"
-)
-
-var (
-	sizeRegex       = regexp.MustCompile(`(?i)(\d+(\.\d+)?)\s*(kb|mb|gb|tb)`)
-	timeagoRegex    = regexp.MustCompile(`(\d+)\s+(min|hour|day|week|month|year)s?\s+ago`)
-	timeagoDayRegex = regexp.MustCompile(`(?i)yesterday`)
-	dateTimeRegex   = regexp.MustCompile(`\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}`)
 )
 
 // Response body size limits to prevent DoS attacks via memory exhaustion
 const (
-	// MaxJSONResponseSize is the maximum size for JSON API responses (50MB)
-	// This handles large search results from indexers
-	MaxJSONResponseSize = 50 * 1024 * 1024
-
 	// MaxHTMLResponseSize is the maximum size for HTML pages (10MB)
 	// This handles large HTML responses from scrapers
 	MaxHTMLResponseSize = 10 * 1024 * 1024
-
-	// MaxLoginResponseSize is the maximum size for login verification responses (1MB)
-	MaxLoginResponseSize = 1 * 1024 * 1024
-
-	// MaxErrorResponseSize is the maximum size for error response logging (100KB)
-	MaxErrorResponseSize = 100 * 1024
 
 	// MaxLogResponseSize is the maximum size for debug logging responses (100KB)
 	MaxLogResponseSize = 100 * 1024
@@ -78,24 +51,23 @@ func limitedReadAll(reader io.Reader, maxBytes int64) ([]byte, error) {
 
 // Manager holds all loaded indexer definitions and authenticated clients
 type Manager struct {
-	Indexers             map[string]*Definition
-	authClients          map[string]*http.Client
-	defaultClient        *http.Client
-	flaresolverrClient   *http.Client
-	flaresolverrURL      string
-	flaresolverrSessions map[string]string // New: Store for FlareSolverr sessions
-	definitionsPath      string
-	watcher              *fsnotify.Watcher
-	reloadCallback       func()
-	mu                   sync.RWMutex
-	failureTimestamps    map[string][]time.Time
-	lastRequest          map[string]time.Time
-	maxFailures          int
-	state                *StateStore
-	upstreamDir          string
-	upstreamURL          string
-	upstreamMu           sync.Mutex // one catalog sync at a time
-	catalog              []CatalogEntry
+	Indexers           map[string]*Definition
+	authClients        map[string]*http.Client
+	defaultClient      *http.Client
+	flaresolverrClient *http.Client
+	flaresolverrURL    string
+	definitionsPath    string
+	watcher            *fsnotify.Watcher
+	reloadCallback     func()
+	mu                 sync.RWMutex
+	failureTimestamps  map[string][]time.Time
+	lastRequest        map[string]time.Time
+	maxFailures        int
+	state              *StateStore
+	upstreamDir        string
+	upstreamURL        string
+	upstreamMu         sync.Mutex // one catalog sync at a time
+	catalog            []CatalogEntry
 }
 
 // ManagerOptions holds optional manager settings.
@@ -160,20 +132,19 @@ func NewManager(definitionsPath string, maxFailures int, opts ManagerOptions) (*
 	}
 
 	m := &Manager{
-		Indexers:             make(map[string]*Definition),
-		authClients:          make(map[string]*http.Client),
-		defaultClient:        newHttpClient(nil),
-		flaresolverrClient:   flaresolverrClient,
-		flaresolverrURL:      flaresolverrURL,
-		flaresolverrSessions: make(map[string]string),
-		definitionsPath:      definitionsPath,
-		watcher:              watcher,
-		failureTimestamps:    make(map[string][]time.Time),
-		lastRequest:          make(map[string]time.Time),
-		maxFailures:          maxFailures,
-		state:                state,
-		upstreamDir:          opts.UpstreamDir,
-		upstreamURL:          opts.UpstreamURL,
+		Indexers:           make(map[string]*Definition),
+		authClients:        make(map[string]*http.Client),
+		defaultClient:      newHttpClient(nil),
+		flaresolverrClient: flaresolverrClient,
+		flaresolverrURL:    flaresolverrURL,
+		definitionsPath:    definitionsPath,
+		watcher:            watcher,
+		failureTimestamps:  make(map[string][]time.Time),
+		lastRequest:        make(map[string]time.Time),
+		maxFailures:        maxFailures,
+		state:              state,
+		upstreamDir:        opts.UpstreamDir,
+		upstreamURL:        opts.UpstreamURL,
 	}
 
 	if err := m.Reload(); err != nil {
@@ -321,19 +292,6 @@ func (m *Manager) executeFlareSolverrRequest(ctx context.Context, payload map[st
 
 	slog.Debug("Full response from FlareSolverr", "html_body", flareResp.Solution.Response)
 
-	// Handle session creation response
-	if cmd, ok := payload["cmd"].(string); ok && cmd == "sessions.create" {
-		if flareResp.Session == "" {
-			return nil, fmt.Errorf("FlareSolverr did not return a session ID")
-		}
-		// Store the session ID
-		if sessionKey, ok := payload["session"].(string); ok {
-			m.mu.Lock()
-			m.flaresolverrSessions[sessionKey] = flareResp.Session
-			m.mu.Unlock()
-		}
-	}
-
 	// Reconstruct the HTTP response from the FlareSolverr solution
 	httpResp := &http.Response{
 		StatusCode: flareResp.Solution.Status,
@@ -360,76 +318,6 @@ func (m *Manager) executeFlareSolverrRequest(ctx context.Context, payload map[st
 	return httpResp, nil
 }
 
-// ensureFlareSolverrSession creates and warms up a FlareSolverr session if one doesn't exist.
-// Uses double-check locking to prevent race conditions when creating sessions.
-func (m *Manager) ensureFlareSolverrSession(ctx context.Context, def *Definition) error {
-	// Fast path: check if session exists with read lock
-	m.mu.RLock()
-	_, exists := m.flaresolverrSessions[def.Key]
-	m.mu.RUnlock()
-
-	if exists {
-		return nil // Session already exists
-	}
-
-	// Slow path: acquire write lock to create session
-	m.mu.Lock()
-
-	// Double-check: another goroutine might have created the session while we were waiting for the lock
-	if _, exists := m.flaresolverrSessions[def.Key]; exists {
-		m.mu.Unlock()
-		slog.Debug("FlareSolverr session already created by another goroutine", "indexer", def.Name)
-		return nil
-	}
-
-	// Generate a unique session ID and reserve it in the map immediately to prevent other goroutines
-	// from attempting to create the same session
-	sessionID := uuid.New().String()
-	m.flaresolverrSessions[def.Key] = sessionID
-	m.mu.Unlock()
-
-	slog.Info("Creating new FlareSolverr session", "indexer", def.Name, "session_id", sessionID)
-
-	// 1. Create the session (this can take time, so we do it without holding the lock)
-	createPayload := map[string]interface{}{
-		"cmd":     "sessions.create",
-		"session": sessionID,
-	}
-	// Add cookies to session creation if they are defined
-	if cookie, ok := def.UserConfig["cookie"]; ok && cookie != "" {
-		createPayload["cookies"] = parseCookieString(cookie)
-	}
-
-	_, err := m.executeFlareSolverrRequest(ctx, createPayload)
-	if err != nil {
-		// If creation fails, remove the session ID from the map so it can be retried
-		m.mu.Lock()
-		delete(m.flaresolverrSessions, def.Key)
-		m.mu.Unlock()
-		return fmt.Errorf("failed to create FlareSolverr session: %w", err)
-	}
-
-	// 2. Warm up the session by visiting the login page to solve initial challenges
-	slog.Debug("Warming up FlareSolverr session", "indexer", def.Name, "url", def.Login.URL)
-	getPayload := map[string]interface{}{
-		"cmd":     "request.get",
-		"url":     def.Login.URL,
-		"session": sessionID,
-	}
-	resp, err := m.executeFlareSolverrRequest(ctx, getPayload)
-	if err != nil {
-		// If warmup fails, remove the session ID from the map so it can be retried
-		m.mu.Lock()
-		delete(m.flaresolverrSessions, def.Key)
-		m.mu.Unlock()
-		return fmt.Errorf("failed to warm up FlareSolverr session: %w", err)
-	}
-	resp.Body.Close()
-
-	slog.Info("FlareSolverr session created and warmed up successfully", "indexer", def.Name, "session_id", sessionID)
-	return nil
-}
-
 // GetIndexer safely retrieves an indexer definition by key.
 func (m *Manager) GetIndexer(key string) (*Definition, bool) {
 	m.mu.RLock()
@@ -445,7 +333,6 @@ func (m *Manager) Reload() error {
 	slog.Info("Reloading all indexer definitions...")
 	m.Indexers = make(map[string]*Definition)
 	m.authClients = make(map[string]*http.Client)
-	// Do not clear FlareSolverr sessions on reload, they might still be valid
 
 	err := filepath.Walk(m.definitionsPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -493,16 +380,14 @@ func (m *Manager) loadDefinition(path, source string) error {
 		return fmt.Errorf("could not read file: %w", err)
 	}
 
-	var def Definition
-	if cardigann.IsCardigann(data) {
-		cd, err := loadCardigann(data)
-		if err != nil {
-			return err
-		}
-		def = *cd
-	} else if err := yaml.Unmarshal(data, &def); err != nil {
-		return fmt.Errorf("could not parse yaml: %w", err)
+	if !cardigann.IsCardigann(data) {
+		return fmt.Errorf("not a Cardigann definition (Scarf's old format is no longer supported; see docs/cardigann.md)")
 	}
+	cd, err := loadCardigann(data)
+	if err != nil {
+		return err
+	}
+	def := *cd
 
 	def.Source = source
 
@@ -650,104 +535,6 @@ func (m *Manager) ToggleIndexerEnabled(key string, enabled bool) error {
 	return nil
 }
 
-// authenticate handles the login process for a tracker.
-func (m *Manager) authenticate(def *Definition) error {
-	key := def.Key
-	m.mu.Lock()
-	if _, ok := m.authClients[key]; ok {
-		m.mu.Unlock()
-		return nil
-	}
-	m.mu.Unlock()
-
-	slog.Info("Authenticating", "indexer", def.Name)
-	ctx := context.Background()
-
-	useFlareSolverr := def.UserConfig["use_flaresolverr"] == "true"
-	if useFlareSolverr {
-		if err := m.ensureFlareSolverrSession(ctx, def); err != nil {
-			return err
-		}
-	}
-
-	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
-	client := newHttpClient(jar)
-	m.mu.Lock()
-	m.authClients[key] = client
-	m.mu.Unlock()
-
-	form := url.Values{}
-	for k, vTpl := range def.Login.Body {
-		val, _ := m.executeTemplate(vTpl, def.UserConfig)
-		form.Set(k, val)
-	}
-
-	var resp *http.Response
-	var err error
-
-	if useFlareSolverr {
-		m.mu.RLock()
-		sessionID := m.flaresolverrSessions[key]
-		m.mu.RUnlock()
-
-		payload := map[string]interface{}{
-			"cmd":      "request.post",
-			"url":      def.Login.URL,
-			"postData": form.Encode(),
-			"session":  sessionID,
-		}
-		// Add cookies if they are defined in the settings
-		if cookie, ok := def.UserConfig["cookie"]; ok && cookie != "" {
-			payload["cookies"] = parseCookieString(cookie)
-		}
-		resp, err = m.executeFlareSolverrRequest(ctx, payload)
-	} else {
-		req, err_req := http.NewRequest(def.Login.Method, def.Login.URL, strings.NewReader(form.Encode()))
-		if err_req != nil {
-			return err_req
-		}
-		req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-		// Add custom headers for login, only if they are defined
-		if def.Login.Headers != nil {
-			for key, valTpl := range def.Login.Headers {
-				val, _ := m.executeTemplate(valTpl, def.UserConfig)
-				req.Header.Set(key, val)
-			}
-		}
-		resp, err = client.Do(req)
-	}
-
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	// Use limited read for login verification to prevent DoS
-	body, err := limitedReadAll(resp.Body, MaxLoginResponseSize)
-	if err != nil {
-		slog.Warn("Failed to read login response body", "indexer", def.Name, "error", err)
-		return fmt.Errorf("failed to read login response: %w", err)
-	}
-
-	if def.Login.SuccessCheck.Contains != "" && !strings.Contains(string(body), def.Login.SuccessCheck.Contains) {
-		slog.Warn("Login failed, response did not contain success string", "indexer", def.Name, "expected", def.Login.SuccessCheck.Contains)
-		return fmt.Errorf("login success check failed; did not find '%s' in response", def.Login.SuccessCheck.Contains)
-	}
-
-	slog.Info("Successfully authenticated", "indexer", def.Name)
-	return nil
-}
-
-// getClient returns an authenticated client if available, otherwise the default client
-func (m *Manager) getClient(key string) *http.Client {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if client, ok := m.authClients[key]; ok {
-		return client
-	}
-	return m.defaultClient
-}
-
 // Test performs a simple search to test if an indexer is working
 func (m *Manager) Test(ctx context.Context, indexerKey string) error {
 	_, err := m.Search(ctx, indexerKey, SearchParams{Query: "test"})
@@ -803,704 +590,11 @@ func (m *Manager) Search(ctx context.Context, indexerKey string, params SearchPa
 	// Respect the indexer's rate limit
 	m.respectRateLimit(indexerKey, def)
 
-	if def.Login.URL != "" {
-		if err := m.authenticate(def); err != nil {
-			m.recordFailure(indexerKey) // Record authentication failure
-			return nil, fmt.Errorf("authentication failed for indexer '%s': %w", def.Name, err)
-		}
-	}
-
 	slog.Debug("Starting search", "indexer", def.Name, "query", params.Query, "imdbid", params.IMDBID, "season", params.Season, "ep", params.Episode)
 
-	// Determine which search mode to use
-	var urls []string
-	if params.IMDBID != "" {
-		if _, ok := def.Search.Modes["movie-search"]; ok {
-			urls = def.Search.URLs
-		}
-	} else if params.Season > 0 && params.Episode > 0 {
-		if _, ok := def.Search.Modes["tv-search"]; ok {
-			urls = def.Search.URLs
-		}
+	cats, ok := cardigannCategories(def, params.Category)
+	if !ok {
+		return nil, nil // none of the requested categories exist on this indexer
 	}
-	// Fallback to default search
-	if len(urls) == 0 {
-		urls = def.Search.URLs
-	}
-
-	indexerCategory := params.Category
-	indexerCategories := []string{}
-	setOnce := sync.Once{}
-	if catID, err := strconv.Atoi(params.Category); err == nil {
-		for _, mapping := range def.CategoryMappings {
-			if mapping.TorznabCategory == catID {
-				setOnce.Do(func() {
-					indexerCategory = mapping.IndexerCategory
-				})
-				indexerCategories = append(indexerCategories, mapping.IndexerCategory)
-			}
-		}
-	}
-
-	if def.Cardigann != nil {
-		cats, ok := cardigannCategories(def, params.Category)
-		if !ok {
-			return nil, nil // none of the requested categories exist on this indexer
-		}
-		return m.searchCardigann(ctx, def, params, cats)
-	}
-
-	client := m.getClient(indexerKey)
-	useFlareSolverr := def.UserConfig["use_flaresolverr"] == "true"
-	tplData := struct {
-		Query      string
-		Config     map[string]string
-		Category   string
-		Categories []string
-		IMDBID     string
-		Season     int
-		Episode    int
-	}{params.Query, def.UserConfig, indexerCategory, indexerCategories, params.IMDBID, params.Season, params.Episode}
-
-	var lastErr error
-	for _, urlTemplate := range urls {
-		baseURL, err := m.executeTemplate(urlTemplate, tplData)
-		if err != nil {
-			lastErr = fmt.Errorf("invalid URL template '%s': %w", urlTemplate, err)
-			continue
-		}
-
-		methodTpl := def.Search.Method
-		if methodTpl == "" {
-			methodTpl = "GET"
-		}
-		method, _ := m.executeTemplate(methodTpl, tplData)
-		method = strings.ToUpper(method)
-
-		var resp *http.Response
-		var reqBody string
-
-		if method == "POST" {
-			bodyTpl := def.Search.Body
-			bodyString, err := m.executeTemplate(bodyTpl, tplData)
-			if err != nil {
-				lastErr = fmt.Errorf("invalid body template: %w", err)
-				continue
-			}
-			reqBody = bodyString
-		} else { // GET
-			u, _ := url.Parse(baseURL)
-			q := u.Query()
-			for key, valTpl := range def.Search.Params {
-				val, err := m.executeTemplate(valTpl, tplData)
-				if err != nil {
-					q.Set(key, valTpl)
-				} else {
-					q.Set(key, val)
-				}
-			}
-			u.RawQuery = q.Encode()
-			baseURL = u.String()
-		}
-
-		if useFlareSolverr {
-			if def.Login.URL != "" {
-				if err := m.ensureFlareSolverrSession(ctx, def); err != nil {
-					return nil, err
-				}
-			}
-
-			m.mu.RLock()
-			sessionID := m.flaresolverrSessions[def.Key]
-			m.mu.RUnlock()
-
-			payload := map[string]interface{}{
-				"cmd":     fmt.Sprintf("request.%s", strings.ToLower(method)),
-				"url":     baseURL,
-				"session": sessionID,
-			}
-			if method == "POST" {
-				payload["postData"] = reqBody
-			}
-			// Combine cookies from UserConfig and from the YAML's
-			// search.headers (case-insensitive key match). Previously only
-			// UserConfig was forwarded, so layout/filter cookies declared in
-			// the definition were silently dropped under FlareSolverr (broke
-			// e.g. EZTV which needs layout=def_wlinks to expand magnets).
-			var cookieParts []string
-			if c, ok := def.UserConfig["cookie"]; ok && c != "" {
-				cookieParts = append(cookieParts, c)
-			}
-			for key, valTpl := range def.Search.Headers {
-				if strings.EqualFold(key, "cookie") {
-					if val, terr := m.executeTemplate(valTpl, tplData); terr == nil && val != "" {
-						cookieParts = append(cookieParts, val)
-					}
-				}
-			}
-			if combined := strings.Join(cookieParts, "; "); combined != "" {
-				payload["cookies"] = parseCookieString(combined)
-			}
-			resp, err = m.executeFlareSolverrRequest(ctx, payload)
-
-		} else {
-			req, err_req := http.NewRequestWithContext(ctx, method, baseURL, strings.NewReader(reqBody))
-			if err_req != nil {
-				lastErr = err_req
-				continue
-			}
-			if method == "POST" {
-				contentType := def.Search.ContentType
-				if contentType == "" {
-					contentType = "application/x-www-form-urlencoded"
-				}
-				req.Header.Set("Content-Type", contentType)
-			}
-			if def.Search.Headers != nil {
-				for key, valTpl := range def.Search.Headers {
-					val, _ := m.executeTemplate(valTpl, tplData)
-					req.Header.Set(key, val)
-				}
-			}
-			resp, err = client.Do(req)
-		}
-
-		if err != nil {
-			if ctx.Err() == context.DeadlineExceeded {
-				return nil, ctx.Err()
-			}
-			lastErr = fmt.Errorf("search request failed for %s: %w", baseURL, err)
-			continue
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			// Use limited read for error logging to prevent DoS
-			body, err := limitedReadAll(resp.Body, MaxErrorResponseSize)
-			bodyStr := "<failed to read>"
-			if err == nil {
-				bodyStr = string(body)
-			}
-			slog.Warn("Search failed with non-200 status",
-				"indexer", def.Name,
-				"url", baseURL,
-				"status", resp.Status,
-				"body", bodyStr,
-			)
-			lastErr = fmt.Errorf("search failed for %s, status: %s", baseURL, resp.Status)
-			continue
-		}
-
-		switch def.Search.Type {
-		case "json":
-			results, err := m.parseJSONResults(resp.Body, def)
-			if err == nil {
-				m.recordSuccess(indexerKey) // Record success
-			}
-			return results, err
-		case "html":
-			var bodyReader io.Reader = resp.Body
-			ct := strings.ToLower(resp.Header.Get("Content-Type"))
-			if ct != "" && !strings.Contains(ct, "utf-8") && !strings.Contains(ct, "utf8") {
-				bodyReader, err = charset.NewReader(resp.Body, ct)
-				if err != nil {
-					lastErr = fmt.Errorf("HTML conversion from charset %q to UTF-8 failed: %w", ct, err)
-					continue
-				}
-			}
-			results, err := m.parseHTMLResults(ctx, bodyReader, def, baseURL)
-			if err == nil {
-				m.recordSuccess(indexerKey) // Record success
-			}
-			return results, err
-		default:
-			return nil, fmt.Errorf("unsupported search type: '%s'", def.Search.Type)
-		}
-	}
-
-	m.recordFailure(indexerKey) // Record failure if all URLs failed
-	return nil, fmt.Errorf("all search attempts failed for indexer '%s', last error: %w", def.Name, lastErr)
-}
-
-func (m *Manager) findSelection(s *goquery.Selection, selector string) *goquery.Selection {
-	if strings.HasPrefix(selector, "next:") {
-		return s.Next().Find(strings.TrimPrefix(selector, "next:"))
-	}
-	return s.Find(selector)
-}
-
-func (m *Manager) extractText(s *goquery.Selection, selector Selector) string {
-	if selector.Text != "" {
-		return selector.Text
-	}
-	selection := m.findSelection(s, selector.Selector)
-	if selector.Remove != "" {
-		selection.Find(selector.Remove).Remove()
-	}
-	return strings.TrimSpace(selection.Text())
-}
-func (m *Manager) extractAttr(s *goquery.Selection, selector Selector) string {
-	parts := strings.Split(selector.Selector, "@")
-	if len(parts) == 2 {
-		selection := m.findSelection(s, parts[0])
-		val, _ := selection.Attr(parts[1])
-		return val
-	}
-	return m.extractText(s, selector)
-}
-
-func (m *Manager) parseHTMLResults(ctx context.Context, body io.Reader, def *Definition, baseURL string) ([]SearchResult, error) {
-	doc, err := goquery.NewDocumentFromReader(body)
-	if err != nil {
-		return nil, err
-	}
-	fields := def.Search.Results.Fields
-	var results []SearchResult
-	var wg sync.WaitGroup
-	resultsChan := make(chan SearchResult, 100)
-
-	// Use a buffered channel to act as a semaphore, limiting concurrent fetches
-	// Use a reasonable default if MaxConcurrentSearches is not set
-	concurrencyLimit := 10
-	if cfg, err := config.GetConfig(); err == nil && cfg.MaxConcurrentSearches > 0 {
-		concurrencyLimit = cfg.MaxConcurrentSearches
-	}
-	semaphore := make(chan struct{}, concurrencyLimit)
-
-	doc.Find(def.Search.Results.RowsSelector).Each(func(i int, s *goquery.Selection) {
-		var sr SearchResult
-		sr.Indexer = def.Name // Add this line
-		sr.Title = m.extractAttr(s, fields.Title)
-		// extractAttr handles "selector@attr" and falls back to text otherwise,
-		// so feeds that carry these values in attributes (torznab:attr value=,
-		// <time datetime=>, <enclosure length=>) work too.
-		sr.Size = m.parseSize(m.extractAttr(s, fields.Size))
-		sr.Seeders, _ = strconv.Atoi(m.extractAttr(s, fields.Seeders))
-		sr.Leechers, _ = strconv.Atoi(m.extractAttr(s, fields.Leechers))
-
-		dateStr := m.extractAttr(s, fields.PublishDate)
-		if dateStr != "" {
-			pubDate, err := parseFuzzyDate(dateStr)
-			if err == nil {
-				sr.PublishDate = pubDate
-			}
-		}
-
-		detailsURL := m.absURL(baseURL, m.extractAttr(s, fields.DetailsURL))
-		if detailsURL != "" && def.Search.Results.DownloadSelector != "" {
-			wg.Add(1)
-
-			// Acquire semaphore
-			semaphore <- struct{}{}
-
-			go func(searchResult SearchResult, detailURL string) {
-				defer wg.Done()
-				// Release semaphore when done
-				defer func() { <-semaphore }()
-
-				downloadSelector := Selector{Selector: def.Search.Results.DownloadSelector}
-				downloadURL, err := m.fetchDownloadLinkFromDetails(ctx, detailURL, downloadSelector, def)
-				if err != nil {
-					slog.Warn("Failed to fetch details page", "url", detailURL, "error", err)
-					return
-				}
-				searchResult.DownloadURL = downloadURL
-				if searchResult.Title != "" && searchResult.DownloadURL != "" {
-					resultsChan <- searchResult
-				}
-			}(sr, detailsURL)
-		} else {
-			sr.DownloadURL = m.absURL(baseURL, m.extractAttr(s, fields.DownloadURL))
-			if sr.Title != "" && sr.DownloadURL != "" {
-				results = append(results, sr)
-			}
-		}
-	})
-
-	wg.Wait()
-	close(resultsChan)
-
-	for result := range resultsChan {
-		results = append(results, result)
-	}
-
-	return results, nil
-}
-
-func (m *Manager) fetchDownloadLinkFromDetails(ctx context.Context, detailURL string, selector Selector, def *Definition) (string, error) {
-	var resp *http.Response
-	var err error
-	useFlareSolverr := def.UserConfig["use_flaresolverr"] == "true"
-	tplData := struct { // Define tplData for header templating
-		Query    string
-		Config   map[string]string
-		Category string
-	}{"", def.UserConfig, ""}
-
-	if useFlareSolverr {
-		m.mu.RLock()
-		sessionID := m.flaresolverrSessions[def.Key]
-		m.mu.RUnlock()
-		payload := map[string]interface{}{
-			"cmd":     "request.get",
-			"url":     detailURL,
-			"session": sessionID,
-		}
-		// Add cookies if they are defined in the settings
-		if cookie, ok := def.UserConfig["cookie"]; ok && cookie != "" {
-			payload["cookies"] = parseCookieString(cookie)
-		}
-		resp, err = m.executeFlareSolverrRequest(ctx, payload)
-	} else {
-		client := m.getClient(def.Key)
-		req, err_req := http.NewRequestWithContext(ctx, "GET", detailURL, nil)
-		if err_req != nil {
-			return "", err_req
-		}
-		// Add custom search headers to details page request, only if they are defined
-		if def.Search.Headers != nil {
-			for key, valTpl := range def.Search.Headers {
-				val, _ := m.executeTemplate(valTpl, tplData)
-				req.Header.Set(key, val)
-			}
-		}
-		resp, err = client.Do(req)
-	}
-
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("details page returned status %s", resp.Status)
-	}
-
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	downloadLink := m.extractAttr(doc.Selection, selector)
-	if downloadLink == "" {
-		return "", fmt.Errorf("download link not found with selector '%s'", selector.Selector)
-	}
-
-	return m.absURL(detailURL, downloadLink), nil
-}
-
-func (m *Manager) parseJSONResults(body io.Reader, def *Definition) ([]SearchResult, error) {
-	// Use limited read for JSON responses to prevent DoS via large payloads
-	data, err := limitedReadAll(body, MaxJSONResponseSize)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read JSON response: %w", err)
-	}
-	jsonBody := string(data)
-	fields := def.Search.Results.Fields
-
-	var results []SearchResult
-	resultPath := def.Search.Results.Path
-	if resultPath == "" {
-		resultPath = "@this"
-	}
-
-	gjson.Get(jsonBody, resultPath).ForEach(func(key, parentValue gjson.Result) bool {
-		parentRaw := make(map[string]interface{})
-		parentValue.ForEach(func(k, v gjson.Result) bool {
-			parentRaw[k.String()] = v.Value()
-			return true
-		})
-
-		if def.Search.Results.SubPath == "" {
-			// Correctly pass 'def' to the processing function
-			processResult(m, parentValue, parentRaw, nil, fields, &results, def)
-			return true
-		}
-
-		parentValue.Get(def.Search.Results.SubPath).ForEach(func(subKey, childValue gjson.Result) bool {
-			// Correctly pass 'def' to the processing function
-			processResult(m, childValue, nil, parentRaw, fields, &results, def)
-			return true
-		})
-
-		return true
-	})
-	return results, nil
-}
-
-func processResult(m *Manager, resultValue gjson.Result, resultRaw, parentRaw map[string]interface{}, fields FieldDefinition, results *[]SearchResult, def *Definition) {
-	if resultRaw == nil {
-		resultRaw = make(map[string]interface{})
-		resultValue.ForEach(func(k, v gjson.Result) bool {
-			resultRaw[k.String()] = v.Value()
-			return true
-		})
-	}
-
-	templateContext := map[string]interface{}{
-		"Result": resultRaw,
-		"Parent": parentRaw,
-	}
-
-	var title string
-	if strings.Contains(fields.Title.Selector, "{{") {
-		title, _ = m.executeTemplate(fields.Title.Selector, templateContext)
-	} else {
-		title = resultValue.Get(fields.Title.Selector).String()
-	}
-
-	var downloadURL string
-	if strings.Contains(fields.DownloadURL.Selector, "{{") {
-		downloadURL, _ = m.executeTemplate(fields.DownloadURL.Selector, templateContext)
-	} else {
-		downloadURL = resultValue.Get(fields.DownloadURL.Selector).String()
-	}
-
-	// jsonField resolves a non-title field: a constant `text`, a template
-	// with access to .Result/.Parent, or a gjson path on the current item.
-	jsonField := func(sel Selector) string {
-		if sel.Text != "" {
-			return sel.Text
-		}
-		if strings.Contains(sel.Selector, "{{") {
-			v, _ := m.executeTemplate(sel.Selector, templateContext)
-			return v
-		}
-		return resultValue.Get(sel.Selector).String()
-	}
-
-	sizeStr := jsonField(fields.Size)
-	size, err := strconv.ParseInt(strings.TrimSpace(sizeStr), 10, 64)
-	if err != nil || size == 0 {
-		size = m.parseSize(sizeStr)
-	}
-
-	pubDate, _ := parseFuzzyDate(jsonField(fields.PublishDate))
-	seeders, _ := strconv.Atoi(strings.TrimSpace(jsonField(fields.Seeders)))
-	leechers, _ := strconv.Atoi(strings.TrimSpace(jsonField(fields.Leechers)))
-
-	if title == "" || downloadURL == "" {
-		return
-	}
-
-	*results = append(*results, SearchResult{
-		Title:       title,
-		DownloadURL: downloadURL,
-		Size:        size,
-		Seeders:     seeders,
-		Leechers:    leechers,
-		PublishDate: pubDate,
-		Indexer:     def.Name, // This will now work as intended
-	})
-}
-
-// executeTemplate executes a Go template string with security restrictions.
-// It validates the template for dangerous patterns and executes it in a restricted context.
-func (m *Manager) executeTemplate(tplStr string, data any) (string, error) {
-	if !strings.Contains(tplStr, "{{") {
-		return tplStr, nil
-	}
-
-	// Security: Validate template for dangerous patterns before execution
-	if err := validateTemplate(tplStr); err != nil {
-		slog.Error("Template validation failed", "template", tplStr, "error", err)
-		return "", fmt.Errorf("template validation failed: %w", err)
-	}
-
-	var buf bytes.Buffer
-
-	// Create a restricted template with only safe functions
-	tpl := template.New("").Funcs(getSecureFuncMap())
-
-	tpl, err := tpl.Parse(tplStr)
-	if err != nil {
-		slog.Warn("Template parsing failed", "template", tplStr, "error", err)
-		return "", fmt.Errorf("template parsing failed: %w", err)
-	}
-
-	// Execute with timeout to prevent infinite loops or resource exhaustion
-	done := make(chan error, 1)
-	go func() {
-		done <- tpl.Execute(&buf, data)
-	}()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			slog.Warn("Template execution failed", "template", tplStr, "error", err)
-			return "", fmt.Errorf("template execution failed: %w", err)
-		}
-		return buf.String(), nil
-	case <-time.After(5 * time.Second):
-		return "", fmt.Errorf("template execution timed out")
-	}
-}
-
-// validateTemplate checks for dangerous patterns in templates that could lead to injection attacks.
-func validateTemplate(tplStr string) error {
-	// List of dangerous patterns that should not be allowed in templates
-	dangerousPatterns := []string{
-		"call",     // Function call - can execute arbitrary functions
-		"import",   // Not a valid template function but check anyway
-		"exec",     // Not a valid template function but check anyway
-		"system",   // Not a valid template function but check anyway
-		"cmd",      // Not a valid template function but check anyway
-		"os.",      // OS package access attempts
-		"runtime.", // Runtime package access attempts
-		"syscall.", // Syscall package access attempts
-	}
-
-	lowerTemplate := strings.ToLower(tplStr)
-	for _, pattern := range dangerousPatterns {
-		if strings.Contains(lowerTemplate, pattern) {
-			return fmt.Errorf("template contains dangerous pattern: %s", pattern)
-		}
-	}
-
-	// Check for excessive nesting which could indicate an attack
-	openCount := strings.Count(tplStr, "{{")
-	closeCount := strings.Count(tplStr, "}}")
-	if openCount != closeCount {
-		return fmt.Errorf("unbalanced template delimiters")
-	}
-	if openCount > 20 {
-		return fmt.Errorf("excessive template nesting (max 20, got %d)", openCount)
-	}
-
-	// Check template length to prevent DoS
-	if len(tplStr) > 10000 {
-		return fmt.Errorf("template too long (max 10000 chars, got %d)", len(tplStr))
-	}
-
-	return nil
-}
-
-// getSecureFuncMap returns a restricted set of template functions that are safe to use.
-// This prevents template injection attacks by limiting what can be done inside templates.
-func getSecureFuncMap() template.FuncMap {
-	return template.FuncMap{
-		// Safe string functions
-		"lower":     strings.ToLower,
-		"upper":     strings.ToUpper,
-		"trim":      strings.TrimSpace,
-		"replace":   strings.ReplaceAll,
-		"contains":  strings.Contains,
-		"hasPrefix": strings.HasPrefix,
-		"hasSuffix": strings.HasSuffix,
-		"split":     strings.Split,
-		"join":      strings.Join,
-
-		// Safe formatting functions
-		"printf": fmt.Sprintf,
-
-		// Note: We explicitly DO NOT include dangerous functions like:
-		// - call: Can execute arbitrary functions
-		// - index: Can access arbitrary data structures
-		// - slice: Can manipulate data in unsafe ways
-	}
-}
-
-func (m *Manager) absURL(base, path string) string {
-	baseURL, err := url.Parse(base)
-	if err != nil {
-		return path
-	}
-	relURL, err := url.Parse(path)
-	if err != nil {
-		return path
-	}
-	return baseURL.ResolveReference(relURL).String()
-}
-
-func (m *Manager) parseSize(s string) int64 {
-	s = strings.ReplaceAll(s, "\u00A0", " ")
-	// A bare integer is a byte count (RSS enclosure length, Torznab <size>).
-	if n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64); err == nil {
-		return n
-	}
-	// Add GiB and MiB to the regex
-	sizeRegex := regexp.MustCompile(`(?i)(\d+(\.\d+)?)\s*(kb|mb|gb|tb|mib|gib)`)
-	matches := sizeRegex.FindStringSubmatch(s)
-	if len(matches) < 4 {
-		return 0
-	}
-	val, _ := strconv.ParseFloat(matches[1], 64)
-	unit := strings.ToLower(matches[3])
-	var multiplier float64 = 1
-	switch unit {
-	case "kb":
-		multiplier = 1024
-	case "mb", "mib": // Group MiB with MB
-		multiplier = 1024 * 1024
-	case "gb", "gib": // Group GiB with GB
-		multiplier = 1024 * 1024 * 1024
-	case "tb":
-		multiplier = 1024 * 1024 * 1024 * 1024
-	}
-	return int64(val * multiplier)
-}
-
-func parseFuzzyDate(dateStr string) (time.Time, error) {
-	dateStr = strings.TrimSpace(dateStr)
-	now := time.Now()
-
-	if strings.Contains(dateStr, "a.m.") || strings.Contains(dateStr, "p.m.") {
-		cleanStr := strings.ReplaceAll(dateStr, ".", "")
-		cleanStr = strings.Replace(cleanStr, "am", "AM", 1)
-		cleanStr = strings.Replace(cleanStr, "pm", "PM", 1)
-		layout := "Jan 2, 2006, 3:04 PM"
-		if t, err := time.Parse(layout, cleanStr); err == nil {
-			return t, nil
-		}
-	}
-
-	if dateTimeMatch := dateTimeRegex.FindString(dateStr); dateTimeMatch != "" {
-		if t, err := time.Parse("2006-01-02 15:04:05", dateTimeMatch); err == nil {
-			return t, nil
-		}
-	}
-
-	if timeagoDayRegex.MatchString(dateStr) {
-		return now.AddDate(0, 0, -1), nil
-	}
-
-	if matches := timeagoRegex.FindStringSubmatch(dateStr); len(matches) == 3 {
-		value, _ := strconv.Atoi(matches[1])
-		unit := matches[2]
-
-		switch unit {
-		case "min":
-			return now.Add(-time.Duration(value) * time.Minute), nil
-		case "hour":
-			return now.Add(-time.Duration(value) * time.Hour), nil
-		case "day":
-			return now.AddDate(0, 0, -value), nil
-		case "week":
-			return now.AddDate(0, 0, -value*7), nil
-		case "month":
-			return now.AddDate(0, -value, 0), nil
-		case "year":
-			return now.AddDate(-value, 0, 0), nil
-		}
-	}
-
-	if unixTime, err := strconv.ParseInt(dateStr, 10, 64); err == nil {
-		if unixTime > 1e12 {
-			return time.Unix(0, unixTime*int64(time.Millisecond)), nil
-		}
-		return time.Unix(unixTime, 0), nil
-	}
-
-	formats := []string{
-		time.RFC3339, "2006-01-02 15:04:05", "2006-01-02 15:04",
-		time.RFC1123, time.RFC1123Z, "Jan 2, 2006", "2006-01-02",
-		time.RFC822, time.RFC822Z,
-	}
-	for _, format := range formats {
-		t, err := time.Parse(format, dateStr)
-		if err == nil {
-			return t, nil
-		}
-	}
-	return time.Time{}, fmt.Errorf("could not parse date: %s", dateStr)
+	return m.searchCardigann(ctx, def, params, cats)
 }

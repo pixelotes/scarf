@@ -929,7 +929,7 @@ func (h *APIHandler) handleCaps(w http.ResponseWriter, r *http.Request, indexerK
 			TvSearch:    TorznabSearchType{Available: "no"},
 			MovieSearch: TorznabSearchType{Available: "no"},
 		}
-		for mode, params := range def.Search.Modes {
+		for mode, params := range def.Modes {
 			supportedParams := strings.Join(params, ",")
 			switch mode {
 			case "search":

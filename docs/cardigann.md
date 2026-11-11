@@ -14,7 +14,7 @@ Scarf warns when more than 12 indexers are enabled: a search waits for the slowe
 
 ### By hand
 
-Drop a Cardigann `.yml` file into the definitions directory. Scarf tells the formats apart by their top-level keys: Cardigann has `id` and `links`, Scarf's own format has `key`. The file name must match the definition's `id` (as upstream files already do). A file in the definitions directory takes precedence over the catalog definition with the same `id`.
+Drop a Cardigann `.yml` file into the definitions directory. The file name must match the definition's `id` (as upstream files already do). A file in the definitions directory takes precedence over the catalog definition with the same `id`.
 
 ### Enabled flags and settings
 
@@ -74,7 +74,7 @@ CARDIGANN_DEFS=/path/to/definitions CARDIGANN_LIVE=1 CARDIGANN_QUERY="one piece"
 
 ## Converted definitions (phase 4)
 
-Scarf definitions with no Prowlarr equivalent are now Cardigann files in `definitions/`. The old format still loads; it is removed later.
+Scarf definitions with no Prowlarr equivalent were converted to Cardigann; they are the files in `definitions/`. The rest are available from the catalog. Scarf's old format is no longer loaded: a file in it is skipped with a log line.
 
 | Indexer | Result | Notes |
 |---|---|---|
@@ -85,6 +85,10 @@ Scarf definitions with no Prowlarr equivalent are now Cardigann files in `defini
 | elitetorrent-wf | Not tested | Cloudflare; needs "Use FlareSolverr", like the old definition. |
 | frozenlayer | Not tested | Answers 403, like the old definition; needs "Use FlareSolverr". |
 
-magnetz stays in the old format: it now needs an account and its login form is unknown.
+magnetz was dropped: it now needs an account and its login form is unknown.
 
-Cardigann files carry no `enabled` flag. torrentgalaxy and therarbg were enabled by default in the old format; enable them again from the web UI.
+Upgrading from the old format:
+
+- Definitions with a Prowlarr equivalent (nyaasi, eztv, yts, …) were removed from `definitions/`. Add them again from the catalog; their `id` is usually the same, so saved settings in `indexers.yml` still apply.
+- Cardigann files carry no `enabled` flag. Indexers enabled in old definition files must be enabled again from the web UI.
+- Every Cardigann indexer gets the hourly pre-fetch schedule (when `ENABLE_CRONJOBS` and the cache are on).
