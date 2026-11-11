@@ -923,7 +923,11 @@ func (m *Manager) Search(ctx context.Context, indexerKey string, params SearchPa
 	}
 
 	if def.Cardigann != nil {
-		return m.searchCardigann(ctx, def, params, indexerCategories)
+		cats, ok := cardigannCategories(def, params.Category)
+		if !ok {
+			return nil, nil // none of the requested categories exist on this indexer
+		}
+		return m.searchCardigann(ctx, def, params, cats)
 	}
 
 	client := m.getClient(indexerKey)

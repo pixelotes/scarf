@@ -120,6 +120,14 @@ var filters = map[string]filterFunc{
 		}
 		return t.Format(time.RFC3339), nil
 	},
+	"validfilename": func(v string, _ []string) (string, error) {
+		return strings.Map(func(r rune) rune {
+			if r < 32 || strings.ContainsRune(`<>:"/\|?*`, r) {
+				return '_'
+			}
+			return r
+		}, v), nil
+	},
 	"htmldecode": func(v string, _ []string) (string, error) { return html.UnescapeString(v), nil },
 	"htmlencode": func(v string, _ []string) (string, error) { return html.EscapeString(v), nil },
 	// validate keeps the words of v that appear in the comma-separated list in args[0].

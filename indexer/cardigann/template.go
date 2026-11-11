@@ -18,6 +18,8 @@ type Context struct {
 	Config     map[string]string
 	Categories []string
 	Result     map[string]string
+	// DownloadUri is set while resolving a download block.
+	DownloadUri DownloadURI
 }
 
 // QueryVars holds Cardigann's .Query.* variables (Q, Keywords, Type, Season,
@@ -29,7 +31,7 @@ var (
 	// .Config.foo-bar and .Result.foo-bar are not valid Go template syntax;
 	// they are rewritten to (index .Config "foo-bar"). Plain names are
 	// rewritten too, so a missing key yields "" instead of "<no value>".
-	dottedVar = regexp2.MustCompile(`\.(Config|Result|Query)\.([A-Za-z0-9_\-]+)`, regexp2.None)
+	dottedVar = regexp2.MustCompile(`(?<![\w)\]])\.(Config|Result|Query)\.([A-Za-z0-9_\-]+)`, regexp2.None)
 
 	tplCache sync.Map // string -> *template.Template
 )

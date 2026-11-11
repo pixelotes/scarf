@@ -2,6 +2,7 @@ package cardigann
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -52,8 +53,50 @@ const MaxBodySize = 10 << 20
 
 // Run runs every matching search path and returns the merged, de-duplicated results.
 func (d *Definition) Run(ctx context.Context, client Doer, q Query, config map[string]string) ([]Result, error) {
-	base := d.BaseURL(config)
+	bases := d.candidateLinks(config)
+	var lastErr error
+	for i, base := range bases {
+		res, err := d.runOnce(ctx, client, base, q, config)
+		if err == nil {
+			if i > 0 {
+				d.setActiveLink(base)
+			}
+			return res, nil
+		}
+		lastErr = err
+		if errors.Is(err, ErrLoginRequired) || ctx.Err() != nil {
+			break // a mirror will not fix these
+		}
+	}
+	return nil, lastErr
+}
+
+// candidateLinks lists the site links to try: the "sitelink" setting alone
+// when the user set one, else every link starting with the last one that worked.
+func (d *Definition) candidateLinks(config map[string]string) []string {
+	if s := strings.TrimSpace(config["sitelink"]); s != "" {
+		return []string{ensureSlash(s)}
+	}
+	start := int(d.activeLink.Load())
+	out := make([]string, 0, len(d.Links))
+	for i := range d.Links {
+		out = append(out, ensureSlash(d.Links[(start+i)%len(d.Links)]))
+	}
+	return out
+}
+
+func (d *Definition) setActiveLink(base string) {
+	for i, l := range d.Links {
+		if ensureSlash(l) == base {
+			d.activeLink.Store(int32(i))
+			return
+		}
+	}
+}
+
+func (d *Definition) runOnce(ctx context.Context, client Doer, base string, q Query, config map[string]string) ([]Result, error) {
 	tctx := d.newContext(q, config)
+	tctx.Config["sitelink"] = base
 
 	kw, err := applyFilters(tctx.Keywords, d.Search.KeywordsFilters, tctx)
 	if err != nil {
@@ -98,12 +141,10 @@ func (d *Definition) Run(ctx context.Context, client Doer, q Query, config map[s
 	return results, nil
 }
 
-// BaseURL is the site link to use: the "sitelink" setting when set, else the first link.
+// BaseURL is the site link to use: the "sitelink" setting when set, else the
+// link that last worked (the first one until a search falls back).
 func (d *Definition) BaseURL(config map[string]string) string {
-	if s := strings.TrimSpace(config["sitelink"]); s != "" {
-		return ensureSlash(s)
-	}
-	return ensureSlash(d.Links[0])
+	return d.candidateLinks(config)[0]
 }
 
 func ensureSlash(s string) string {

@@ -267,6 +267,11 @@ func (d *Definition) loginRequest(ctx context.Context, client Doer, method strin
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("login request %s: status %s", u.Redacted(), resp.Status)
 	}
+	return d.decodeHTML(resp)
+}
+
+// bodyReader returns the size-limited body decoded from the page's charset.
+func (d *Definition) bodyReader(resp *http.Response) io.Reader {
 	var r io.Reader = io.LimitReader(resp.Body, MaxBodySize)
 	enc := resp.Header.Get("Content-Type")
 	if d.Encoding != "" && !strings.EqualFold(d.Encoding, "utf-8") {
@@ -277,7 +282,7 @@ func (d *Definition) loginRequest(ctx context.Context, client Doer, method strin
 			r = cr
 		}
 	}
-	return goquery.NewDocumentFromReader(r)
+	return r
 }
 
 func (d *Definition) checkLoginErrors(doc *goquery.Document, tctx *Context) error {

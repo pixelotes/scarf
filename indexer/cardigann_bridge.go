@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,7 +16,6 @@ import (
 	"go-indexer/indexer/cardigann"
 
 	"golang.org/x/net/publicsuffix"
-	"gopkg.in/yaml.v3"
 )
 
 // loadCardigann builds a Scarf Definition from a Cardigann (Jackett/Prowlarr)
@@ -29,7 +29,7 @@ func loadCardigann(data []byte) (*Definition, error) {
 	var extra struct {
 		Enabled Bool `yaml:"enabled"`
 	}
-	_ = yaml.Unmarshal(data, &extra)
+	_ = cardigann.Unmarshal(data, &extra)
 
 	def := &Definition{
 		Key:         cd.ID,
@@ -115,6 +115,34 @@ func (m *Manager) forgetCardigannLogin(key string) {
 	m.mu.Unlock()
 }
 
+// cardigannCategories maps a Torznab "cat" parameter ("2000,5040") to site
+// categories. A parent category matches its subcategories. ok is false when
+// categories were requested and the indexer has none of them, so the search
+// is skipped instead of returning everything.
+func cardigannCategories(def *Definition, param string) (cats []string, ok bool) {
+	var want []int
+	for _, p := range strings.Split(param, ",") {
+		if id, err := strconv.Atoi(strings.TrimSpace(p)); err == nil {
+			want = append(want, id)
+		}
+	}
+	if len(want) == 0 {
+		return nil, true
+	}
+	seen := map[string]bool{}
+	for _, m := range def.CategoryMappings {
+		for _, w := range want {
+			if m.TorznabCategory == w || (w%1000 == 0 && m.TorznabCategory/1000*1000 == w) {
+				if !seen[m.IndexerCategory] {
+					seen[m.IndexerCategory] = true
+					cats = append(cats, m.IndexerCategory)
+				}
+			}
+		}
+	}
+	return cats, len(cats) > 0
+}
+
 // searchCardigann runs a search for an indexer loaded from a Cardigann definition.
 func (m *Manager) searchCardigann(ctx context.Context, def *Definition, params SearchParams, siteCats []string) ([]SearchResult, error) {
 	q := cardigann.Query{
@@ -144,9 +172,12 @@ func (m *Manager) searchCardigann(ctx context.Context, def *Definition, params S
 	}
 	m.recordSuccess(def.Key)
 
+	proxy := def.Cardigann.NeedsLogin() || def.Cardigann.NeedsResolve()
 	out := make([]SearchResult, 0, len(res))
 	for _, r := range res {
 		out = append(out, SearchResult{
+			IndexerKey:  def.Key,
+			Proxied:     proxy && !strings.HasPrefix(r.Download, "magnet:"),
 			Title:       r.Title,
 			DownloadURL: r.Download,
 			Size:        r.Size,
@@ -206,4 +237,61 @@ func (d *cardigannDoer) Do(req *http.Request) (*http.Response, error) {
 		resp.Request = req
 	}
 	return resp, err
+}
+
+// ErrIndexerNotFound is returned for an unknown or non-Cardigann indexer key.
+var ErrIndexerNotFound = errors.New("indexer not found")
+
+// Download resolves a proxied result link with the indexer's session. It
+// returns either a magnet link to redirect to, or the .torrent response; the
+// caller closes its body.
+func (m *Manager) Download(ctx context.Context, key, link string) (string, *http.Response, error) {
+	def, ok := m.GetIndexer(key)
+	if !ok || def.Cardigann == nil {
+		return "", nil, ErrIndexerNotFound
+	}
+	m.respectRateLimit(key, def)
+	fetch := func() (string, *http.Response, error) {
+		client, err := m.cardigannClient(ctx, def)
+		if err != nil {
+			return "", nil, err
+		}
+		doer := &cardigannDoer{m: m, def: def, client: client}
+		target, err := def.Cardigann.ResolveDownload(ctx, doer, link, def.UserConfig)
+		if err != nil {
+			return "", nil, err
+		}
+		if strings.HasPrefix(target, "magnet:") {
+			return target, nil, nil
+		}
+		// The .torrent itself is fetched directly: FlareSolverr returns page
+		// text and would corrupt binary files.
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+		if err != nil {
+			return "", nil, err
+		}
+		req.Header.Set("Referer", def.Cardigann.BaseURL(def.UserConfig))
+		resp, err := client.Do(req)
+		if err != nil {
+			return "", nil, err
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return "", nil, fmt.Errorf("%s: status %s", target, resp.Status)
+		}
+		if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html") {
+			resp.Body.Close()
+			if def.Cardigann.NeedsLogin() {
+				return "", nil, cardigann.ErrLoginRequired
+			}
+			return "", nil, fmt.Errorf("%s returned a web page, not a torrent", target)
+		}
+		return "", resp, nil
+	}
+	redirect, resp, err := fetch()
+	if errors.Is(err, cardigann.ErrLoginRequired) && def.Cardigann.NeedsLogin() {
+		m.forgetCardigannLogin(key)
+		redirect, resp, err = fetch()
+	}
+	return redirect, resp, err
 }

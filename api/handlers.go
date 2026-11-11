@@ -708,7 +708,7 @@ func (h *APIHandler) WebSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := SearchResponse{
-		Results:    results,
+		Results:    proxyLinks(r, results),
 		Total:      total,
 		Limit:      limit,
 		Offset:     offset,
@@ -1109,11 +1109,11 @@ func (h *APIHandler) handleSearch(w http.ResponseWriter, r *http.Request, indexe
 	for _, result := range results {
 		item := Item{
 			Title:       result.Title,
-			Link:        result.DownloadURL,
+			Link:        downloadLink(r, result),
 			PublishDate: result.PublishDate.Format(time.RFC1123Z),
 			Size:        result.Size,
 			Enclosure: Enclosure{
-				URL:    result.DownloadURL,
+				URL:    downloadLink(r, result),
 				Length: result.Size,
 				Type:   "application/x-bittorrent",
 			},
@@ -1181,11 +1181,11 @@ func (h *APIHandler) TorznabLatest(w http.ResponseWriter, r *http.Request) {
 				for _, result := range cachedResult.Results {
 					item := Item{
 						Title:       result.Title,
-						Link:        result.DownloadURL,
+						Link:        downloadLink(r, result),
 						PublishDate: result.PublishDate.Format(time.RFC1123Z),
 						Size:        result.Size,
 						Enclosure: Enclosure{
-							URL:    result.DownloadURL,
+							URL:    downloadLink(r, result),
 							Length: result.Size,
 							Type:   "application/x-bittorrent",
 						},

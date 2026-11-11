@@ -9,6 +9,7 @@ package cardigann
 import (
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	"gopkg.in/yaml.v3"
 )
@@ -27,8 +28,10 @@ type Definition struct {
 	Caps         Caps      `yaml:"caps"`
 	Settings     []Setting `yaml:"settings"`
 	Login        *Login    `yaml:"login"`
-	Download     yaml.Node `yaml:"download"`
+	Download     *Download `yaml:"download"`
 	Search       Search    `yaml:"search"`
+
+	activeLink atomic.Int32 // index of the link that last worked
 }
 
 // Caps holds the indexer's category mappings and search modes.
@@ -158,7 +161,7 @@ func (f *Filter) UnmarshalYAML(n *yaml.Node) error {
 // definition needs a feature the prototype does not run yet.
 func Parse(data []byte) (*Definition, error) {
 	var d Definition
-	if err := yaml.Unmarshal(data, &d); err != nil {
+	if err := Unmarshal(data, &d); err != nil {
 		return nil, fmt.Errorf("could not parse yaml: %w", err)
 	}
 	if d.ID == "" || len(d.Links) == 0 {
@@ -173,6 +176,34 @@ func Parse(data []byte) (*Definition, error) {
 	return &d, nil
 }
 
+// Unmarshal decodes YAML, accepting the "\/" escape that YAML 1.2 (and
+// Jackett/Prowlarr's parser) allow in double-quoted strings but go-yaml does not.
+func Unmarshal(data []byte, v any) error {
+	err := yaml.Unmarshal(data, v)
+	if err != nil && strings.Contains(err.Error(), "unknown escape") {
+		err = yaml.Unmarshal(dropSlashEscapes(data), v)
+	}
+	return err
+}
+
+// dropSlashEscapes turns "\/" into "/" where the backslash is not itself escaped.
+func dropSlashEscapes(data []byte) []byte {
+	out := make([]byte, 0, len(data))
+	for i := 0; i < len(data); i++ {
+		if data[i] == '\\' && i+1 < len(data) {
+			if data[i+1] == '/' {
+				out = append(out, '/')
+			} else {
+				out = append(out, data[i], data[i+1])
+			}
+			i++
+			continue
+		}
+		out = append(out, data[i])
+	}
+	return out
+}
+
 // IsCardigann reports whether data looks like a Cardigann definition rather
 // than Scarf's own format: Cardigann has top-level "id" and "links", Scarf has "key".
 func IsCardigann(data []byte) bool {
@@ -181,7 +212,7 @@ func IsCardigann(data []byte) bool {
 		Key   string   `yaml:"key"`
 		Links []string `yaml:"links"`
 	}
-	if err := yaml.Unmarshal(data, &probe); err != nil {
+	if err := Unmarshal(data, &probe); err != nil {
 		return false
 	}
 	return probe.Key == "" && probe.ID != "" && len(probe.Links) > 0
@@ -198,9 +229,6 @@ func (d *Definition) checkSupported() error {
 		default:
 			missing = append(missing, "login method "+d.Login.Method)
 		}
-	}
-	if d.Download.Kind != 0 {
-		missing = append(missing, "download block")
 	}
 	for _, f := range d.Search.Rows.Filters {
 		if f.Name != "andmatch" {
@@ -230,6 +258,15 @@ func (d *Definition) checkSupported() error {
 	}
 	if dh := d.Search.Rows.DateHeaders; dh != nil {
 		check(dh.Filters)
+	}
+	if d.Download != nil {
+		for _, f := range d.Download.Selectors {
+			check(f.Filters)
+		}
+		if ih := d.Download.Infohash; ih != nil {
+			check(ih.Hash.Filters)
+			check(ih.Title.Filters)
+		}
 	}
 	if d.Login != nil {
 		for _, f := range d.Login.SelectorInputs {

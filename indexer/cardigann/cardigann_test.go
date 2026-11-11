@@ -270,3 +270,30 @@ func TestRawStrings(t *testing.T) {
 		t.Fatalf("got %q, %v", got, err)
 	}
 }
+
+func TestLinkFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(testHTML))
+	}))
+	defer srv.Close()
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "down", http.StatusBadGateway)
+	}))
+	defer dead.Close()
+
+	d, err := Parse([]byte(testDef))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Links = []string{dead.URL, srv.URL}
+	res, err := d.Run(context.Background(), srv.Client(), Query{Keywords: "show"}, nil)
+	if err != nil || len(res) != 1 {
+		t.Fatalf("got %d results, %v", len(res), err)
+	}
+	if got := d.BaseURL(nil); got != srv.URL+"/" {
+		t.Errorf("working link not remembered: %s", got)
+	}
+	if !strings.HasPrefix(res[0].Details, srv.URL) {
+		t.Errorf("details on the wrong host: %s", res[0].Details)
+	}
+}
