@@ -1,41 +1,59 @@
-key: elitetorrent-wf
+---
+# Converted from Scarf's own format (phase 4). Not in Prowlarr/Indexers.
+# The site is behind Cloudflare: enable "Use FlareSolverr".
+id: elitetorrent-wf
 name: Elitetorrent-wf
-description: Elitetorrent-wf is a SPANISH Public tracker for MOVIES / TV
-type: public
-enabled: "false"
+description: "Elitetorrent-wf is a SPANISH Public tracker for MOVIES / TV"
 language: es-ES
-schedule: '@hourly'
-settings:
-  - name: use_flaresolverr
-    type: checkbox
-    label: Use FlareSolverr
-    default: 'true'
-search:
-  type: html
-  urls:
-    - "https://www.elitetorrent.wf/"
-  params:
-    s: "{{.Query}}"
-    x: "0"
-    y: "0"
-  results:
-    rows_selector: '#principal .miniboxs-ficha li:has(span:nth-of-type(2))'
-    fields:
-      title:
-        selector: div.imagen > a@title
-      details_url:
-        selector: .meta a@href
-      download_url:
-        selector: .meta a@href
-      size:
-        selector: div.imagen span.dig1
-    download_selector: a[href^="magnet:?"]@href
+type: public
+encoding: UTF-8
+links:
+  - https://www.elitetorrent.wf/
+
+caps:
+  categorymappings:
+    - {id: peliculas, cat: Movies, desc: Películas}
+    - {id: series, cat: TV, desc: Series}
   modes:
-    search:
-      - q
-    tv-search:
-      - q
-      - season
-      - ep
-    movie-search:
-      - q
+    search: [q]
+    tv-search: [q, season, ep]
+    movie-search: [q]
+
+settings: []
+
+download:
+  selectors:
+    - selector: a[href^="magnet:?"]
+      attribute: href
+
+search:
+  paths:
+    - path: /
+  inputs:
+    s: "{{ .Keywords }}"
+    x: 0
+    y: 0
+  rows:
+    selector: "#principal .miniboxs-ficha li:has(span:nth-of-type(2))"
+  fields:
+    category:
+      text: peliculas
+    title:
+      selector: div.imagen > a
+      attribute: title
+    details:
+      selector: .meta a
+      attribute: href
+    download:
+      selector: .meta a
+      attribute: href
+    size:
+      selector: div.imagen span.dig1
+    seeders:
+      text: 1
+    leechers:
+      text: 1
+    downloadvolumefactor:
+      text: 0
+    uploadvolumefactor:
+      text: 1

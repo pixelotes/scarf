@@ -1,56 +1,59 @@
-key: "frozenlayer"
-name: "Frozen Layer"
-rate_limit: 2s
+---
+# Converted from Scarf's own format (phase 4). Not in Prowlarr/Indexers.
+id: frozenlayer
+name: Frozen Layer
 description: "Frozen Layer is a SPANISH Public torrent site focused on ANIME"
-type: "public"
-enabled: "false"
-language: "es-ES"
-schedule: "@hourly"
-health_check:
-  query: "naruto"  # frieren no tiene fansub ES extendido aquí
-settings:
-  - name: use_flaresolverr
-    type: checkbox
-    label: Use FlareSolverr
-    default: 'false'
-search:
-  type: "html"
-  # This URL searches across all categories by default.
-  urls:
-    - "https://www.frozen-layer.com/buscar/descargas/todos/{{.Query}}?search=Buscar"
-  results:
-    # Selector for each row in the results table that has a magnet link.
-    rows_selector: "table#descargas > tbody > tr:has(td > a[href^='magnet:?'])"
-    fields:
-      title:
-        selector: "td.tit a"
-      # Scarf prioritizes magnet links when available.
-      download_url:
-        selector: 'td:nth-child(1) a[href^="magnet:?"]@href'
-      size:
-        selector: "td:nth-child(6)"
-      seeders:
-        selector: "td:nth-child(7)"
-      leechers:
-        selector: "td:nth-child(8)"
-      # Scarf's fuzzy date parser will handle the various date formats.
-      publish_date:
-        selector: "td.fecha"
+language: es-ES
+type: public
+encoding: UTF-8
+requestDelay: 2
+links:
+  - https://www.frozen-layer.com/
+
+caps:
+  categorymappings:
+    - {id: Anime, cat: TV/Anime, desc: Anime}
+    - {id: Manga, cat: Books/Comics, desc: Manga}
+    - {id: Dorama, cat: TV, desc: Dorama}
+    - {id: Videojuego, cat: PC/Games, desc: Videojuego}
+    - {id: Bso, cat: Audio, desc: BSO}
+    - {id: Pv, cat: Audio/Video, desc: PV}
+    - {id: Otros, cat: Other, desc: Otros}
   modes:
     search: [q]
     tv-search: [q, season, ep]
-category_mappings:
-  - indexer_cat: "Anime"
-    torznab_cat: 5080
-  - indexer_cat: "Manga"
-    torznab_cat: 7030 # Books/Comics
-  - indexer_cat: "Dorama"
-    torznab_cat: 5000 # TV
-  - indexer_cat: "Videojuego"
-    torznab_cat: 4050 # PC/Games
-  - indexer_cat: "Bso"
-    torznab_cat: 3000 # Audio
-  - indexer_cat: "Pv"
-    torznab_cat: 3020 # Audio/Video
-  - indexer_cat: "Otros"
-    torznab_cat: 8000 # Other
+
+settings: []
+
+search:
+  paths:
+    - path: "buscar/descargas/todos/{{ .Keywords }}"
+  inputs:
+    search: Buscar
+  rows:
+    selector: "table#descargas > tbody > tr:has(td > a[href^='magnet:?'])"
+  fields:
+    category:
+      text: Anime
+    title:
+      selector: td.tit a
+    details:
+      selector: td.tit a
+      attribute: href
+    download:
+      selector: td:nth-child(1) a[href^="magnet:?"]
+      attribute: href
+    size:
+      selector: td:nth-child(6)
+    seeders:
+      selector: td:nth-child(7)
+    leechers:
+      selector: td:nth-child(8)
+    date:
+      selector: td.fecha
+      filters:
+        - name: fuzzytime
+    downloadvolumefactor:
+      text: 0
+    uploadvolumefactor:
+      text: 1

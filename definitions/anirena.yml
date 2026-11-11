@@ -1,68 +1,66 @@
-key: aniRena
+---
+# Converted from Scarf's own format (phase 4). Not in Prowlarr/Indexers.
+id: anirena
 name: AniRena
-rate_limit: 2s
-description: AniRena is a Public torrent tracker for the latest anime and Japanese related torrents
-type: "public"
-enabled: "false"
+description: "AniRena is a Public torrent tracker for the latest anime and Japanese related torrents"
 language: en-US
-schedule: '@every 1h'
-health_check:
-  query: "frieren"
-settings:
-  - name: use_flaresolverr
-    type: checkbox
-    label: Use FlareSolverr
-    default: 'false'
-search:
-  type: html
-  urls:
-    - "https://www.anirena.com/?q={{.Query}}"
-  params: {}
-  results:
-    # AniRena was rewritten — old `torrents_small_*` classes are gone. New
-    # layout: single table.tl-table; meta (date/size/seeders/leechers) lives
-    # inside td.col-name via spans, not separate columns.
-    rows_selector: "table.tl-table tr[data-torrent-id]"
-    fields:
-      title:
-        selector: "a.tl-torrent-name"
-      details_url:
-        selector: "a.tl-torrent-name@href"
-      download_url:
-        selector: 'a[title="Download Torrent"]@href'
-      size:
-        selector: ".tl-meta-size"
-      seeders:
-        selector: ".tl-se"
-      leechers:
-        selector: ".tl-le"
-      publish_date:
-        selector: ".tl-meta-date span[data-utc]"
+type: public
+encoding: UTF-8
+requestDelay: 2
+links:
+  - https://www.anirena.com/
+
+caps:
+  categorymappings:
+    - {id: 1, cat: TV/Anime, desc: Anime Series}
+    - {id: 2, cat: TV/Anime, desc: Anime Movie}
+    - {id: 3, cat: TV/Anime, desc: Anime OVA}
+    - {id: 4, cat: TV/Anime, desc: Anime Raw}
+    - {id: 9, cat: TV/Anime, desc: Hentai}
+    - {id: 10, cat: TV/Anime, desc: Live Action}
+    - {id: 5, cat: PC/Games, desc: Games}
+    - {id: 6, cat: PC, desc: Software}
+    - {id: 7, cat: Books, desc: Manga}
+    - {id: 8, cat: Audio, desc: Music}
+    - {id: 11, cat: Other, desc: Other}
   modes:
     search: [q]
     tv-search: [q, season, ep]
     music-search: [q]
     book-search: [q]
-category_mappings:
-  - indexer_cat: '1'
-    torznab_cat: 5080
-  - indexer_cat: '2'
-    torznab_cat: 5080
-  - indexer_cat: '3'
-    torznab_cat: 5080
-  - indexer_cat: '4'
-    torznab_cat: 5080
-  - indexer_cat: '9'
-    torznab_cat: 5080
-  - indexer_cat: '10'
-    torznab_cat: 5080
-  - indexer_cat: '5'
-    torznab_cat: 4020
-  - indexer_cat: '6'
-    torznab_cat: 4000
-  - indexer_cat: '7'
-    torznab_cat: 7000
-  - indexer_cat: '8'
-    torznab_cat: 3000
-  - indexer_cat: '11'
-    torznab_cat: 8000
+
+settings: []
+
+search:
+  paths:
+    - path: /
+  inputs:
+    q: "{{ .Keywords }}"
+  rows:
+    selector: table.tl-table tr[data-torrent-id]
+  fields:
+    category:
+      text: 1
+    title:
+      selector: a.tl-torrent-name
+    details:
+      selector: a.tl-torrent-name
+      attribute: href
+    download:
+      selector: a[title="Download Torrent"]
+      attribute: href
+    size:
+      selector: .tl-meta-size
+    seeders:
+      selector: .tl-se
+    leechers:
+      selector: .tl-le
+    date:
+      selector: .tl-meta-date span[data-utc]
+      filters:
+        - name: dateparse
+          args: "yyyy-MM-dd HH:mm"
+    downloadvolumefactor:
+      text: 0
+    uploadvolumefactor:
+      text: 1

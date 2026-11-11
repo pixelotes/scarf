@@ -1,64 +1,73 @@
-key: "torrentgalaxy"
-name: "TorrentGalaxy"
-rate_limit: 2s
+---
+# Converted from Scarf's own format (phase 4). Not in Prowlarr/Indexers
+# (Prowlarr's torrentgalaxy targets the old site).
+id: torrentgalaxy
+name: TorrentGalaxy
 description: "TorrentGalaxy is a Public site for MOVIES / TV / GENERAL"
-type: "public"
-enabled: "true"
-language: "en-US"
-schedule: "@every 1h"
-settings:
-  - name: use_flaresolverr
-    type: checkbox
-    label: Use FlareSolverr
-    default: 'false'
-search:
-  type: "html"
-  urls:
-    - "https://torrentgalaxy.one/get-posts/{{if .Query}}keywords:{{.Query}}{{end}}{{if .Category}}:category:{{.Category}}{{end}}"
-    - "https://torrentgalaxy.info/get-posts/{{if .Query}}keywords:{{.Query}}{{end}}{{if .Category}}:category:{{.Category}}{{end}}"
-    - "https://torrentgalaxy.space/get-posts/{{if .Query}}keywords:{{.Query}}{{end}}{{if .Category}}:category:{{.Category}}{{end}}"
-  params: {}
-  results:
-    rows_selector: "div.tgxtablerow"
-    download_selector: "a[href^='magnet:?xt=']@href"
-    fields:
-      title:
-        selector: "a[href^='/post-detail/']@title"
-      size:
-        selector: "div.tgxtablecell:nth-last-child(5) span"
-      seeders:
-        selector: "div.tgxtablecell:nth-last-child(2) span font:nth-of-type(1)"
-      leechers:
-        selector: "div.tgxtablecell:nth-last-child(2) span font:nth-of-type(2)"
-      publish_date:
-        selector: "div.tgxtablecell:nth-last-child(1)"
-        remove: "div.bighide"
-      details_url:
-        selector: "a[href^='/post-detail/']@href"
+language: en-US
+type: public
+encoding: UTF-8
+requestDelay: 2
+links:
+  - https://torrentgalaxy.one/
+  - https://torrentgalaxy.info/
+  - https://torrentgalaxy.space/
+
+caps:
+  categorymappings:
+    - {id: Movies, cat: Movies, desc: Movies}
+    - {id: TV, cat: TV, desc: TV}
+    - {id: Docus, cat: TV/Documentary, desc: Documentaries}
+    - {id: Games, cat: PC/Games, desc: Games}
+    - {id: Music, cat: Audio, desc: Music}
+    - {id: Anime, cat: TV/Anime, desc: Anime}
+    - {id: Apps, cat: PC, desc: Apps}
+    - {id: Books, cat: Books, desc: Books}
+    - {id: XXX, cat: XXX, desc: XXX}
+    - {id: Other, cat: Other, desc: Other}
   modes:
     search: [q]
     tv-search: [q, season, ep, imdbid]
     movie-search: [q, imdbid]
     music-search: [q]
     book-search: [q]
-category_mappings:
-  - indexer_cat: "Movies"
-    torznab_cat: 2000
-  - indexer_cat: "TV"
-    torznab_cat: 5000
-  - indexer_cat: "Docus"
-    torznab_cat: 5070
-  - indexer_cat: "Games"
-    torznab_cat: 4050
-  - indexer_cat: "Music"
-    torznab_cat: 3000
-  - indexer_cat: "Anime"
-    torznab_cat: 5080
-  - indexer_cat: "Apps"
-    torznab_cat: 4000
-  - indexer_cat: "Books"
-    torznab_cat: 7000
-  - indexer_cat: "XXX"
-    torznab_cat: 6000
-  - indexer_cat: "Other"
-    torznab_cat: 8000
+
+settings: []
+
+search:
+  paths:
+    - path: "get-posts/{{ if .Keywords }}keywords:{{ .Keywords }}{{ else }}time:10D{{ end }}{{ if .Categories }}:category:{{ join .Categories \",\" }}{{ end }}"
+  keywordsfilters:
+    - name: replace
+      args: [":", " "]
+  rows:
+    selector: div.tgxtablerow
+  fields:
+    category:
+      text: Other
+    title:
+      selector: a[href^='/post-detail/']
+      attribute: title
+    details:
+      selector: a[href^='/post-detail/']
+      attribute: href
+    download:
+      selector: a[href^='magnet:?xt=']
+      attribute: href
+    size:
+      selector: div.tgxtablecell:nth-last-child(5) span
+    seeders:
+      selector: div.tgxtablecell:nth-last-child(2) span font:nth-of-type(1)
+    leechers:
+      selector: div.tgxtablecell:nth-last-child(2) span font:nth-of-type(2)
+    date:
+      selector: div.tgxtablecell:nth-last-child(1)
+      remove: div.bighide
+      # "4 Mins ago" for recent posts, "23/04/26 12:56" (dd/MM/yy) for older ones.
+      filters:
+        - name: re_replace
+          args: ["^(\\d{2})\\/(\\d{2})\\/(\\d{2}) ", "20$3-$2-$1 "]
+    downloadvolumefactor:
+      text: 0
+    uploadvolumefactor:
+      text: 1

@@ -71,3 +71,20 @@ To repeat the tests:
 CARDIGANN_DEFS=/path/to/definitions go test ./indexer/cardigann -run Upstream -v                          # load only
 CARDIGANN_DEFS=/path/to/definitions CARDIGANN_LIVE=1 CARDIGANN_QUERY="one piece" go test ./indexer/cardigann -run Upstream -v
 ```
+
+## Converted definitions (phase 4)
+
+Scarf definitions with no Prowlarr equivalent are now Cardigann files in `definitions/`. The old format still loads; it is removed later.
+
+| Indexer | Result | Notes |
+|---|---|---|
+| anirena | 79 for "frieren", same as before | The `id` is now `anirena` (was `aniRena`), so re-enable it. Seeders/leechers now read the first match; the old definition concatenated two numbers. |
+| subsplease | 90 for "frieren", same as before | JSON API; one result per resolution through `rows.attribute` + `multiple`. |
+| therarbg | 40 for "ubuntu", same as before | Magnet built from the infohash. |
+| torrentgalaxy | 40 for "ubuntu", 50 for latest (old: 30, and 0 for latest) | Magnets come from the listing, no details-page requests. Dates are relative or `dd/MM/yy`. |
+| elitetorrent-wf | Not tested | Cloudflare; needs "Use FlareSolverr", like the old definition. |
+| frozenlayer | Not tested | Answers 403, like the old definition; needs "Use FlareSolverr". |
+
+magnetz stays in the old format: it now needs an account and its login form is unknown.
+
+Cardigann files carry no `enabled` flag. torrentgalaxy and therarbg were enabled by default in the old format; enable them again from the web UI.
