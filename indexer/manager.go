@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"go-indexer/config"
+	"go-indexer/indexer/cardigann"
 	"io"
 	"log/slog"
 	"net"
@@ -465,7 +466,13 @@ func (m *Manager) loadDefinition(path string) error {
 	}
 
 	var def Definition
-	if err := yaml.Unmarshal(data, &def); err != nil {
+	if cardigann.IsCardigann(data) {
+		cd, err := loadCardigann(data)
+		if err != nil {
+			return err
+		}
+		def = *cd
+	} else if err := yaml.Unmarshal(data, &def); err != nil {
 		return fmt.Errorf("could not parse yaml: %w", err)
 	}
 
@@ -565,6 +572,7 @@ func (m *Manager) UpdateIndexerUserConfig(key string, config map[string]string) 
 	}
 
 	// Iterate through each setting in the settings block
+	written := map[string]bool{}
 	for _, settingNode := range settingsNode.Content {
 		if settingNode.Kind != yaml.MappingNode {
 			continue
@@ -573,6 +581,23 @@ func (m *Manager) UpdateIndexerUserConfig(key string, config map[string]string) 
 		if newValue, ok := config[settingName]; ok {
 			// Find the 'default' key and update its value
 			updateNodeValueByKey(settingNode, "default", newValue)
+			written[settingName] = true
+		}
+	}
+	// Settings Scarf adds on load (use_flaresolverr on Cardigann definitions)
+	// are not in the file yet; append them so the value survives a reload.
+	if def, ok := m.Indexers[key]; ok {
+		for _, s := range def.Settings {
+			v, ok := config[s.Name]
+			if !ok || written[s.Name] {
+				continue
+			}
+			n := &yaml.Node{Kind: yaml.MappingNode}
+			updateNodeValueByKey(n, "name", s.Name)
+			updateNodeValueByKey(n, "type", s.Type)
+			updateNodeValueByKey(n, "label", s.Label)
+			updateNodeValueByKey(n, "default", v)
+			settingsNode.Content = append(settingsNode.Content, n)
 		}
 	}
 
@@ -894,6 +919,10 @@ func (m *Manager) Search(ctx context.Context, indexerKey string, params SearchPa
 				indexerCategories = append(indexerCategories, mapping.IndexerCategory)
 			}
 		}
+	}
+
+	if def.Cardigann != nil {
+		return m.searchCardigann(ctx, def, params, indexerCategories)
 	}
 
 	client := m.getClient(indexerKey)
@@ -1386,14 +1415,14 @@ func (m *Manager) executeTemplate(tplStr string, data any) (string, error) {
 func validateTemplate(tplStr string) error {
 	// List of dangerous patterns that should not be allowed in templates
 	dangerousPatterns := []string{
-		"call",      // Function call - can execute arbitrary functions
-		"import",    // Not a valid template function but check anyway
-		"exec",      // Not a valid template function but check anyway
-		"system",    // Not a valid template function but check anyway
-		"cmd",       // Not a valid template function but check anyway
-		"os.",       // OS package access attempts
-		"runtime.",  // Runtime package access attempts
-		"syscall.",  // Syscall package access attempts
+		"call",     // Function call - can execute arbitrary functions
+		"import",   // Not a valid template function but check anyway
+		"exec",     // Not a valid template function but check anyway
+		"system",   // Not a valid template function but check anyway
+		"cmd",      // Not a valid template function but check anyway
+		"os.",      // OS package access attempts
+		"runtime.", // Runtime package access attempts
+		"syscall.", // Syscall package access attempts
 	}
 
 	lowerTemplate := strings.ToLower(tplStr)
@@ -1426,15 +1455,15 @@ func validateTemplate(tplStr string) error {
 func getSecureFuncMap() template.FuncMap {
 	return template.FuncMap{
 		// Safe string functions
-		"lower":    strings.ToLower,
-		"upper":    strings.ToUpper,
-		"trim":     strings.TrimSpace,
-		"replace":  strings.ReplaceAll,
-		"contains": strings.Contains,
+		"lower":     strings.ToLower,
+		"upper":     strings.ToUpper,
+		"trim":      strings.TrimSpace,
+		"replace":   strings.ReplaceAll,
+		"contains":  strings.Contains,
 		"hasPrefix": strings.HasPrefix,
 		"hasSuffix": strings.HasSuffix,
-		"split":    strings.Split,
-		"join":     strings.Join,
+		"split":     strings.Split,
+		"join":      strings.Join,
 
 		// Safe formatting functions
 		"printf": fmt.Sprintf,
