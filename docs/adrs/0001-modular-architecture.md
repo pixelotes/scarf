@@ -17,7 +17,8 @@ The core of Scarf is the Torznab API in front of the indexer definitions. Everyt
 | Result cache (SQLite) | `CACHE_ENABLED=false` | No database is opened; every request goes to the tracker. |
 | Scheduled pre-fetch of the latest releases | `ENABLE_CRONJOBS=false` | No background requests. Also off whenever the cache is off, since it only fills the cache. |
 | Cloudflare solver (FlareSolverr, or Parasol as a drop-in) | `FLARESOLVERR_URL` unset | Indexers that need it fail; the rest are unaffected. Opt-in per indexer with "Use FlareSolverr". |
-| Each indexer | `enabled` in its definition, or the web UI | The definition is loaded but never queried or scheduled. |
+| Prowlarr definitions catalog | `UPSTREAM_SYNC=false` | The catalog API answers 404 and the UI hides its section; nothing is downloaded. Hand-placed definitions still work. |
+| Each indexer | The web UI (stored in `indexers.yml`) | The definition is loaded but never queried or scheduled. |
 
 Rules for new features:
 

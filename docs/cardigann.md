@@ -1,12 +1,24 @@
 # Cardigann definitions
 
-Scarf can load indexer definitions written in the Cardigann format used by Jackett and Prowlarr. Phases 1 and 2 of the plan in `docs/cardigann_migration_plan.md` are done; see also [ADR 0002](adrs/0002-adopt-cardigann-format.md).
+Scarf can load indexer definitions written in the Cardigann format used by Jackett and Prowlarr. Phases 1 to 3 of the plan in `docs/cardigann_migration_plan.md` are done; see also [ADR 0002](adrs/0002-adopt-cardigann-format.md).
 
 ## Usage
 
-Drop a Cardigann `.yml` file into the definitions directory. Scarf tells the formats apart by their top-level keys: Cardigann has `id` and `links`, Scarf's own format has `key`. The file name must match the definition's `id` (as upstream files already do), and it cannot share a name with a Scarf definition.
+### From the Prowlarr catalog
 
-Add `enabled: true` at the end of the file, or enable the indexer from the web UI. Scarf writes the `enabled` flag and changed settings back into the file; Jackett and Prowlarr ignore those keys.
+In the web UI, open **Indexers** and press **Update catalog**. Scarf downloads the [Prowlarr/Indexers](https://github.com/Prowlarr/Indexers) tarball (one request, a few MB), keeps the `definitions/v11/*.yml` files in `DATA_DIR/upstream` and lists them. Filter the list and press **Add** to enable an indexer; private trackers open their settings right away. Only enabled indexers are parsed and kept in memory. Disabling one from the catalog unloads it.
+
+**Update catalog** replaces the downloaded definitions with the current upstream ones; enabled indexers keep their settings. No previous version is kept. Nothing is downloaded automatically. `UPSTREAM_SYNC=false` turns the catalog off.
+
+Scarf warns when more than 12 indexers are enabled: a search waits for the slowest indexer.
+
+### By hand
+
+Drop a Cardigann `.yml` file into the definitions directory. Scarf tells the formats apart by their top-level keys: Cardigann has `id` and `links`, Scarf's own format has `key`. The file name must match the definition's `id` (as upstream files already do). A file in the definitions directory takes precedence over the catalog definition with the same `id`.
+
+### Enabled flags and settings
+
+Enabled flags and settings, for both formats, are stored in `indexers.yml` in `DATA_DIR` (`STATE_FILE`), never in the definition files. The file holds credentials and is written with mode 0600. An `enabled` key or setting default written into a definition file by an older Scarf version is still read until the indexer is changed from the web UI. The web UI never receives saved passwords: it shows them as saved, and leaving the field empty keeps them.
 
 Every Cardigann indexer gets a "Use FlareSolverr" setting, which routes its requests through `FLARESOLVERR_URL`.
 
@@ -16,7 +28,7 @@ Credentials for private trackers (`username`, `password`, `cookie`, `apikey`...)
 
 Results from private trackers and from indexers with a `download` block do not carry the tracker's link. Their Torznab link points to Scarf instead (`/torznab/<id>/download?link=...&sig=...`). Scarf checks the signature, follows the `download` block with the indexer's session and streams the `.torrent`, or redirects to the magnet link. The links are signed with `JWT_SECRET`. If that variable is not set, a random secret is generated at startup, and links handed out before a restart stop working. Behind a reverse proxy, Scarf builds the links from `X-Forwarded-Proto` and `X-Forwarded-Host`.
 
-Scarf does not ship upstream definitions: they are GPL-licensed and Scarf is MIT. Fetch them from [Prowlarr/Indexers](https://github.com/Prowlarr/Indexers) (`definitions/v11/`).
+Scarf does not ship upstream definitions: they are GPL-licensed and Scarf is MIT. The catalog downloads them at the user's request.
 
 ## What works
 
@@ -38,8 +50,6 @@ Definitions that need any of these are rejected at load time with a log line nam
 
 - Login with a `captcha` (43 upstream definitions).
 - Row filters other than `andmatch`.
-
-Pending for phase 3: `enabled` and user settings (including passwords) are still written into the definition file, and the web UI receives saved passwords in clear, as with Scarf's own format.
 
 ## Test results
 

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -129,6 +130,8 @@ func main() {
 		"cache_enabled", cfg.CacheEnabled,
 		"cache_ttl", cfg.CacheTTL,
 		"web_ui", cfg.WebUIEnabled,
+		"upstream_catalog", cfg.UpstreamEnabled,
+		"state_file", cfg.StateFile,
 		"definitions_path", cfg.DefinitionsPath,
 	)
 
@@ -159,7 +162,12 @@ func main() {
 
 	// --- Initialize Indexer Manager ---
 	slog.Info("Loading indexer definitions", "path", cfg.DefinitionsPath)
-	idxManager, err := indexer.NewManager(cfg.DefinitionsPath, cfg.MaxFailures)
+	idxOpts := indexer.ManagerOptions{StatePath: cfg.StateFile}
+	if cfg.UpstreamEnabled {
+		idxOpts.UpstreamDir = filepath.Join(cfg.DataDir, "upstream")
+		idxOpts.UpstreamURL = cfg.UpstreamURL
+	}
+	idxManager, err := indexer.NewManager(cfg.DefinitionsPath, cfg.MaxFailures, idxOpts)
 	if err != nil {
 		slog.Error("Failed to load indexer definitions", "error", err)
 		os.Exit(1)
@@ -382,6 +390,8 @@ func main() {
 		r.Get("/api/v1/flexget_key", apiHandler.GetFlexgetAPIKey)
 		r.Post("/api/v1/indexer/toggle", apiHandler.ToggleIndexer)
 		r.Post("/api/v1/indexer/config", apiHandler.UpdateIndexerConfig)
+		r.Get("/api/v1/upstream", apiHandler.UpstreamCatalog)
+		r.Post("/api/v1/upstream/sync", apiHandler.SyncUpstream)
 		r.Get("/api/v1/logs", logger.WebSocketHandler)
 		r.Get("/metrics", apiHandler.MetricsHandler)
 

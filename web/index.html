@@ -58,6 +58,13 @@
         .status-card-actions { margin-top: 1rem; display: flex; gap: 0.5rem; }
         .status-card-actions button { font-size: 0.8rem; padding: 0.5rem; }
         .flexget-url { margin-top: 1rem; }
+        .warning-banner { background: #4a3b00; border: 1px solid #8a6d00; color: #ffd866; padding: .6rem .8rem; border-radius: 4px; margin-bottom: 1rem; }
+        .catalog-section { margin-top: 2rem; }
+        .catalog-controls { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; margin-bottom: 1rem; }
+        .catalog-controls input[type="search"] { flex: 1; min-width: 12rem; }
+        #catalog-table { width: 100%; }
+        #catalog-table td.reason { color: #999; font-size: .85em; }
+        #catalog-table td.desc { color: #aaa; font-size: .85em; max-width: 28rem; }
         #flexget-url-input {
             width: 50%;
             box-sizing: border-box; /* Ensures padding doesn't add to the width */
@@ -225,7 +232,28 @@
                     <option value="private">Private</option>
                 </select>
             </div>
+            <div id="enabled-warning" class="warning-banner" style="display:none;"></div>
             <div id="status-grid" class="status-grid"></div>
+            <section id="catalog-section" class="catalog-section" style="display:none;">
+                <h2>Add indexers</h2>
+                <p id="catalog-info" class="status-message"></p>
+                <div class="catalog-controls">
+                    <button id="catalog-sync-btn">Update catalog</button>
+                    <input type="search" id="catalog-filter" placeholder="Filter by name, language or description">
+                    <select id="catalog-type">
+                        <option value="all">All Types</option>
+                        <option value="public">Public</option>
+                        <option value="private">Private</option>
+                        <option value="semi-private">Semi-private</option>
+                    </select>
+                    <label><input type="checkbox" id="catalog-supported" checked> Only supported</label>
+                </div>
+                <table id="catalog-table" style="display:none;">
+                    <thead><tr><th>Name</th><th>Type</th><th>Language</th><th>Description</th><th></th></tr></thead>
+                    <tbody></tbody>
+                </table>
+                <p id="catalog-more" class="status-message"></p>
+            </section>
             <div class="flexget-url">
                 <h3>Flexget URL (for 'all' indexers)</h3>
                 <p>Use this URL in your Flexget `torznab` configuration:</p>
@@ -362,6 +390,7 @@
                 loadInitialData();
                 setupLogViewer();
                 document.getElementById('type-filter').addEventListener('change', renderStatusGrid);
+                setupCatalog();
             }
 
             // --- DATA LOADING & API CALLS ---
@@ -610,8 +639,8 @@
                             <input type="checkbox" class="enable-switch" data-key="${key}" ${indexer.enabled ? 'checked' : ''}>
                             <span class="slider round"></span>
                         </label>
-                        <h3>${indexer.name}</h3>
-                        <p><span class="tracker-type-tag">${indexer.type}</span></p>
+                        <h3>${escapeHTML(indexer.name)}</h3>
+                        <p><span class="tracker-type-tag">${escapeHTML(indexer.type)}</span>${indexer.source === 'upstream' ? ' <span class="tracker-type-tag" title="From the Prowlarr catalog">catalog</span>' : ''}</p>
                         <p>Status: <span id="status-text-${key}">Unknown</span></p>
                         <div class="status-card-actions">
                             <button class="test-btn" data-key="${key}">Test</button>
@@ -622,6 +651,7 @@
                     statusGrid.appendChild(card);
                 });
 
+                updateEnabledWarning();
                 statusGrid.onclick = handleStatusGridClick;
                 statusGrid.onchange = handleStatusGridChange;
                 document.getElementById('test-all-btn').onclick = () => document.querySelectorAll('.test-btn').forEach(btn => btn.click());
@@ -686,7 +716,7 @@
 
                     const label = document.createElement('label');
                     label.htmlFor = `setting-${setting.name}`;
-                    label.textContent = setting.label;
+                    label.textContent = setting.label || setting.name;
 
                     let input;
                     const currentValue = indexer.user_config[setting.name] || setting.default;
@@ -716,6 +746,18 @@
                             group.classList.add('form-group-checkbox');
                             group.appendChild(input);
                             group.appendChild(label);
+                            break;
+                        case 'password':
+                            // Saved passwords are never sent to the browser;
+                            // an empty field keeps the saved one.
+                            input = document.createElement('input');
+                            input.type = 'password';
+                            input.id = `setting-${setting.name}`;
+                            input.name = setting.name;
+                            input.autocomplete = 'new-password';
+                            input.placeholder = indexer.user_config[setting.name + '.set'] ? '•••••• saved (leave empty to keep)' : '';
+                            group.appendChild(label);
+                            group.appendChild(input);
                             break;
                         default:
                             input = document.createElement('input');
@@ -766,12 +808,134 @@
                             method: 'POST', body: JSON.stringify({ key, enabled })
                         });
                         if (!response.ok) throw new Error('Failed to toggle indexer');
-                        state.allIndexersData[key].enabled = enabled;
+                        if (!enabled && state.allIndexersData[key].source === 'upstream') {
+                            // Disabled catalog indexers are unloaded: back to the catalog.
+                            await fetchIndexerData();
+                            renderStatusGrid();
+                            renderCatalog();
+                        } else {
+                            state.allIndexersData[key].enabled = enabled;
+                            updateEnabledWarning();
+                        }
                         populateIndexerDropdown();
                     } catch (error) {
                         console.error(error);
                         e.target.checked = !enabled;
                     }
+                }
+            }
+
+            // --- Upstream catalog ---
+            const MAX_RECOMMENDED_INDEXERS = 12;
+            const CATALOG_PAGE = 100;
+
+            function escapeHTML(s) {
+                return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            }
+
+            function updateEnabledWarning() {
+                const n = Object.values(state.allIndexersData).filter(i => i.enabled).length;
+                const el = document.getElementById('enabled-warning');
+                el.style.display = n > MAX_RECOMMENDED_INDEXERS ? 'block' : 'none';
+                el.textContent = `${n} indexers are enabled. A search waits for the slowest one, so more than ${MAX_RECOMMENDED_INDEXERS} makes searches slow.`;
+            }
+
+            async function setupCatalog() {
+                document.getElementById('catalog-sync-btn').onclick = syncCatalog;
+                ['catalog-filter', 'catalog-type', 'catalog-supported'].forEach(id =>
+                    document.getElementById(id).addEventListener('input', renderCatalog));
+                document.querySelector('#catalog-table tbody').onclick = handleCatalogClick;
+                await loadCatalog();
+            }
+
+            async function loadCatalog() {
+                const response = await fetchWithAuth('/api/v1/upstream');
+                if (response.status === 404) return; // UPSTREAM_SYNC=false
+                if (!response.ok) return;
+                state.catalog = await response.json();
+                document.getElementById('catalog-section').style.display = '';
+                renderCatalog();
+            }
+
+            async function syncCatalog() {
+                const btn = document.getElementById('catalog-sync-btn');
+                const info = document.getElementById('catalog-info');
+                btn.disabled = true;
+                info.textContent = 'Downloading definitions from Prowlarr…';
+                try {
+                    const response = await fetchWithAuth('/api/v1/upstream/sync', { method: 'POST' });
+                    if (!response.ok) throw new Error(await response.text());
+                    await fetchIndexerData();
+                    renderStatusGrid();
+                    populateIndexerDropdown();
+                    await loadCatalog();
+                } catch (error) {
+                    info.textContent = `Update failed: ${error.message}`;
+                } finally {
+                    btn.disabled = false;
+                }
+            }
+
+            function renderCatalog() {
+                const cat = state.catalog;
+                if (!cat) return;
+                const info = document.getElementById('catalog-info');
+                const table = document.getElementById('catalog-table');
+                const more = document.getElementById('catalog-more');
+                const entries = cat.entries || [];
+                if (entries.length === 0) {
+                    info.textContent = 'The catalog has not been downloaded yet. "Update catalog" fetches the definitions from Prowlarr.';
+                    table.style.display = 'none';
+                    more.textContent = '';
+                    return;
+                }
+                const supported = entries.filter(e => e.supported).length;
+                info.textContent = `${entries.length} definitions, ${supported} supported. Updated ${new Date(cat.updated_at).toLocaleString()}.`;
+
+                const q = document.getElementById('catalog-filter').value.trim().toLowerCase();
+                const type = document.getElementById('catalog-type').value;
+                const onlySupported = document.getElementById('catalog-supported').checked;
+                const matches = entries.filter(e =>
+                    !state.allIndexersData[e.id] &&
+                    (!onlySupported || e.supported) &&
+                    (type === 'all' || e.type === type) &&
+                    (!q || `${e.name} ${e.id} ${e.language} ${e.description}`.toLowerCase().includes(q)));
+
+                const tbody = table.querySelector('tbody');
+                tbody.innerHTML = matches.slice(0, CATALOG_PAGE).map(e => `
+                    <tr>
+                        <td>${escapeHTML(e.name || e.id)}</td>
+                        <td>${escapeHTML(e.type)}</td>
+                        <td>${escapeHTML(e.language)}</td>
+                        <td class="desc">${escapeHTML(e.description)}</td>
+                        <td>${e.supported
+                            ? `<button class="catalog-add" data-key="${escapeHTML(e.id)}">Add</button>`
+                            : `<span class="reason">${escapeHTML(e.reason)}</span>`}</td>
+                    </tr>`).join('');
+                table.style.display = matches.length ? '' : 'none';
+                more.textContent = matches.length > CATALOG_PAGE
+                    ? `Showing ${CATALOG_PAGE} of ${matches.length}. Filter to narrow the list.`
+                    : (matches.length ? '' : 'No definitions match.');
+            }
+
+            async function handleCatalogClick(e) {
+                if (!e.target.matches('.catalog-add')) return;
+                const key = e.target.dataset.key;
+                e.target.disabled = true;
+                try {
+                    const response = await fetchWithAuth('/api/v1/indexer/toggle', {
+                        method: 'POST', body: JSON.stringify({ key, enabled: true })
+                    });
+                    if (!response.ok) throw new Error(await response.text());
+                    await fetchIndexerData();
+                    renderStatusGrid();
+                    populateIndexerDropdown();
+                    renderCatalog();
+                    const added = state.allIndexersData[key];
+                    if (added && added.type !== 'public' && added.settings?.length) openSettingsModal(key);
+                } catch (error) {
+                    e.target.disabled = false;
+                    alert(`Could not add ${key}: ${error.message}`);
                 }
             }
 
