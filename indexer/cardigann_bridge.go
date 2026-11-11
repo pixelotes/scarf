@@ -2,15 +2,19 @@ package indexer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/cookiejar"
 	"strings"
+	"sync"
 	"time"
 
 	"go-indexer/indexer/cardigann"
 
+	"golang.org/x/net/publicsuffix"
 	"gopkg.in/yaml.v3"
 )
 
@@ -73,17 +77,67 @@ func loadCardigann(data []byte) (*Definition, error) {
 	return def, nil
 }
 
+// cardigannLoginMu serialises logins so concurrent searches on a private
+// tracker do not sign in twice.
+var cardigannLoginMu sync.Mutex
+
+// cardigannClient returns the HTTP client for an indexer. Indexers with a
+// login block get their own client and cookie jar, signed in on first use.
+func (m *Manager) cardigannClient(ctx context.Context, def *Definition) (*http.Client, error) {
+	if !def.Cardigann.NeedsLogin() {
+		return m.defaultClient, nil
+	}
+	cardigannLoginMu.Lock()
+	defer cardigannLoginMu.Unlock()
+	m.mu.RLock()
+	c, ok := m.authClients[def.Key]
+	m.mu.RUnlock()
+	if ok {
+		return c, nil
+	}
+	jar, _ := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+	c = newHttpClient(jar)
+	slog.Info("Logging in", "indexer", def.Name, "method", def.Cardigann.Login.Method)
+	if err := def.Cardigann.DoLogin(ctx, &cardigannDoer{m: m, def: def, client: c}, jar, def.UserConfig); err != nil {
+		return nil, fmt.Errorf("login failed for indexer '%s': %w", def.Name, err)
+	}
+	slog.Info("Logged in", "indexer", def.Name)
+	m.mu.Lock()
+	m.authClients[def.Key] = c
+	m.mu.Unlock()
+	return c, nil
+}
+
+// forgetCardigannLogin drops an indexer's session so the next search signs in again.
+func (m *Manager) forgetCardigannLogin(key string) {
+	m.mu.Lock()
+	delete(m.authClients, key)
+	m.mu.Unlock()
+}
+
 // searchCardigann runs a search for an indexer loaded from a Cardigann definition.
 func (m *Manager) searchCardigann(ctx context.Context, def *Definition, params SearchParams, siteCats []string) ([]SearchResult, error) {
-	doer := &cardigannDoer{m: m, def: def, client: m.getClient(def.Key)}
-	res, err := def.Cardigann.Run(ctx, doer, cardigann.Query{
+	q := cardigann.Query{
 		Keywords:   params.Query,
 		IMDBID:     params.IMDBID,
 		TVDBID:     params.TVDBID,
 		Season:     params.Season,
 		Episode:    params.Episode,
 		Categories: siteCats,
-	}, def.UserConfig)
+	}
+	run := func() ([]cardigann.Result, error) {
+		client, err := m.cardigannClient(ctx, def)
+		if err != nil {
+			return nil, err
+		}
+		return def.Cardigann.Run(ctx, &cardigannDoer{m: m, def: def, client: client}, q, def.UserConfig)
+	}
+	res, err := run()
+	if errors.Is(err, cardigann.ErrLoginRequired) && def.Cardigann.NeedsLogin() {
+		slog.Info("Session expired, logging in again", "indexer", def.Name)
+		m.forgetCardigannLogin(def.Key)
+		res, err = run()
+	}
 	if err != nil {
 		m.recordFailure(def.Key)
 		return nil, fmt.Errorf("search failed for indexer '%s': %w", def.Name, err)
@@ -133,8 +187,19 @@ func (d *cardigannDoer) Do(req *http.Request) (*http.Response, error) {
 		}
 		payload["postData"] = string(b)
 	}
+	// Requests through FlareSolverr bypass the client's cookie jar, so the
+	// session cookies from a login are passed along explicitly.
+	var cookies []string
 	if c := req.Header.Get("Cookie"); c != "" {
-		payload["cookies"] = parseCookieString(c)
+		cookies = append(cookies, c)
+	}
+	if d.client.Jar != nil {
+		for _, c := range d.client.Jar.Cookies(req.URL) {
+			cookies = append(cookies, c.Name+"="+c.Value)
+		}
+	}
+	if len(cookies) > 0 {
+		payload["cookies"] = parseCookieString(strings.Join(cookies, "; "))
 	}
 	resp, err := d.m.executeFlareSolverrRequest(req.Context(), payload)
 	if err == nil && resp.Request == nil {

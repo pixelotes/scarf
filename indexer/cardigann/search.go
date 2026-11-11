@@ -256,26 +256,16 @@ func (d *Definition) runPath(ctx context.Context, client Doer, base string, p Pa
 	if method == http.MethodPost {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
-	for k, v := range d.Search.Headers {
-		hv := ""
-		switch t := v.(type) {
-		case string:
-			hv = t
-		case []any:
-			if len(t) > 0 {
-				hv = fmt.Sprint(t[0])
-			}
-		}
-		if hv, err = render(hv, tctx); err == nil && hv != "" {
-			req.Header.Set(k, hv)
-		}
-	}
+	setHeaders(req, d.Search.Headers, tctx)
 
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request %s: %w", reqURL.Redacted(), err)
 	}
 	defer resp.Body.Close()
+	if resp.Request != nil && d.isLoginPage(resp.Request.URL) {
+		return nil, fmt.Errorf("%s: %w", reqURL.Redacted(), ErrLoginRequired)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("request %s: status %s", reqURL.Redacted(), resp.Status)
 	}

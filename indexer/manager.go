@@ -549,6 +549,7 @@ func (m *Manager) Close() error {
 func (m *Manager) UpdateIndexerUserConfig(key string, config map[string]string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	delete(m.authClients, key) // credentials may have changed: sign in again
 
 	filePath := m.findIndexerFile(key)
 	if filePath == "" {

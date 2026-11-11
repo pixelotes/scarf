@@ -167,9 +167,9 @@ func TestCheckboxOffUsesTorrent(t *testing.T) {
 }
 
 func TestParseRejectsUnsupported(t *testing.T) {
-	def := strings.Replace(testDef, "search:\n  paths:", "login:\n  path: login.php\nsearch:\n  paths:", 1)
-	if _, err := Parse([]byte(def)); err == nil || !strings.Contains(err.Error(), "login") {
-		t.Fatalf("want login rejection, got %v", err)
+	def := strings.Replace(testDef, "search:\n  paths:", "login:\n  path: login.php\n  method: form\n  captcha:\n    type: image\nsearch:\n  paths:", 1)
+	if _, err := Parse([]byte(def)); err == nil || !strings.Contains(err.Error(), "captcha") {
+		t.Fatalf("want captcha rejection, got %v", err)
 	}
 	def = strings.Replace(testDef, "name: append", "name: nosuchfilter", 1)
 	if _, err := Parse([]byte(def)); err == nil || !strings.Contains(err.Error(), "nosuchfilter") {

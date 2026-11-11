@@ -26,7 +26,7 @@ type Definition struct {
 	Links        []string  `yaml:"links"`
 	Caps         Caps      `yaml:"caps"`
 	Settings     []Setting `yaml:"settings"`
-	Login        yaml.Node `yaml:"login"`
+	Login        *Login    `yaml:"login"`
 	Download     yaml.Node `yaml:"download"`
 	Search       Search    `yaml:"search"`
 }
@@ -189,8 +189,15 @@ func IsCardigann(data []byte) bool {
 
 func (d *Definition) checkSupported() error {
 	var missing []string
-	if d.Login.Kind != 0 {
-		missing = append(missing, "login")
+	if d.Login != nil {
+		if d.Login.Captcha.Kind != 0 {
+			missing = append(missing, "login captcha")
+		}
+		switch strings.ToLower(d.Login.Method) {
+		case "", "post", "get", "form", "cookie":
+		default:
+			missing = append(missing, "login method "+d.Login.Method)
+		}
 	}
 	if d.Download.Kind != 0 {
 		missing = append(missing, "download block")
@@ -223,6 +230,16 @@ func (d *Definition) checkSupported() error {
 	}
 	if dh := d.Search.Rows.DateHeaders; dh != nil {
 		check(dh.Filters)
+	}
+	if d.Login != nil {
+		for _, f := range d.Login.SelectorInputs {
+			check(f.Filters)
+		}
+		for _, e := range d.Login.Error {
+			if e.Message != nil {
+				check(e.Message.Filters)
+			}
+		}
 	}
 	for name := range unknown {
 		missing = append(missing, "filter "+name)
