@@ -20,23 +20,16 @@ type Context struct {
 	Result     map[string]string
 }
 
-// QueryVars mirrors Cardigann's .Query.* variables.
-type QueryVars struct {
-	Q           string
-	Keywords    string
-	Season      string
-	Ep          string
-	IMDBID      string
-	IMDBIDShort string
-	TVDBID      string
-	Year        string
-}
+// QueryVars holds Cardigann's .Query.* variables (Q, Keywords, Type, Season,
+// Ep, IMDBID, IMDBIDShort, TVDBID, TMDBID, Year, Artist, Album, ...). It is a
+// map so that variables Scarf does not fill render as "".
+type QueryVars map[string]string
 
 var (
 	// .Config.foo-bar and .Result.foo-bar are not valid Go template syntax;
 	// they are rewritten to (index .Config "foo-bar"). Plain names are
 	// rewritten too, so a missing key yields "" instead of "<no value>".
-	dottedVar = regexp2.MustCompile(`\.(Config|Result)\.([A-Za-z0-9_\-]+)`, regexp2.None)
+	dottedVar = regexp2.MustCompile(`\.(Config|Result|Query)\.([A-Za-z0-9_\-]+)`, regexp2.None)
 
 	tplCache sync.Map // string -> *template.Template
 )

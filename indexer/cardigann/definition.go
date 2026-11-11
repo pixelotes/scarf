@@ -72,17 +72,24 @@ type Path struct {
 	InheritInputs *bool             `yaml:"inheritinputs"`
 	Categories    []string          `yaml:"categories"`
 	Response      struct {
-		Type string `yaml:"type"`
+		Type             string  `yaml:"type"`
+		NoResultsMessage *string `yaml:"noResultsMessage"`
 	} `yaml:"response"`
 }
 
 // Rows selects the result rows.
 type Rows struct {
-	Selector    string    `yaml:"selector"`
-	After       int       `yaml:"after"`
-	Remove      string    `yaml:"remove"`
-	Filters     []Filter  `yaml:"filters"`
-	DateHeaders yaml.Node `yaml:"dateheaders"`
+	Selector    string   `yaml:"selector"`
+	After       int      `yaml:"after"`
+	Remove      string   `yaml:"remove"`
+	Filters     []Filter `yaml:"filters"`
+	DateHeaders *Field   `yaml:"dateheaders"`
+	// JSON only
+	Attribute string `yaml:"attribute"`
+	Multiple  bool   `yaml:"multiple"`
+	Count     struct {
+		Selector string `yaml:"selector"`
+	} `yaml:"count"`
 }
 
 // Field extracts one value from a row.
@@ -188,9 +195,6 @@ func (d *Definition) checkSupported() error {
 	if d.Download.Kind != 0 {
 		missing = append(missing, "download block")
 	}
-	if d.Search.Rows.DateHeaders.Kind != 0 {
-		missing = append(missing, "rows.dateheaders")
-	}
 	for _, f := range d.Search.Rows.Filters {
 		if f.Name != "andmatch" {
 			missing = append(missing, "rows filter "+f.Name)
@@ -200,7 +204,7 @@ func (d *Definition) checkSupported() error {
 		missing = append(missing, "search.paths (none defined)")
 	}
 	for _, p := range d.Search.Paths {
-		if t := p.Response.Type; t != "" && t != "html" {
+		if t := p.Response.Type; t != "" && t != "html" && t != "json" && t != "xml" {
 			missing = append(missing, "response type "+t)
 			break
 		}
@@ -216,6 +220,9 @@ func (d *Definition) checkSupported() error {
 	check(d.Search.KeywordsFilters)
 	for _, f := range d.Search.Fields {
 		check(f.Filters)
+	}
+	if dh := d.Search.Rows.DateHeaders; dh != nil {
+		check(dh.Filters)
 	}
 	for name := range unknown {
 		missing = append(missing, "filter "+name)
