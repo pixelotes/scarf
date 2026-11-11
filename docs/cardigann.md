@@ -42,7 +42,7 @@ Run against the Prowlarr `v11` definitions of the indexers Scarf already has (No
 - **Parity:** nyaasi, acgrip, shanaproject and torrentkitty return the same number of results through the Prowlarr definitions as through Scarf's own (75, 30, 50 and 20 for "one piece").
 - **TV search:** the Prowlarr definitions pass season and episode to the site; for nyaasi, "one piece" S23E04 returns 3 matching releases where Scarf's own definition returns the 75 unfiltered results.
 - **noname-club:** works, including windows-1251 requests.
-- **Cloudflare:** eztv, tokyotosho, uindex and btdirectory answered 403 with a Cloudflare challenge without FlareSolverr; not tested through it.
+- **Cloudflare:** eztv, tokyotosho, uindex and btdirectory answer 403 with a Cloudflare challenge. Through [Parasol](https://github.com/pixelotes/parasol) with "Use FlareSolverr" on, all four work. eztv (1) and uindex (100) match Scarf's own definitions. tokyotosho returns 3 instead of 13 because Prowlarr's `andmatch` drops unrelated rows. btdirectory returns 15 instead of 20 because Scarf's definition repeats the same 15 infohashes.
 - **Memory:** about 2–3 MB more RSS than the same indexers in Scarf's format (macOS, 4 indexers, cache off, after 12 searches: 32.6 MB vs 29.7 MB). Not measured on the Pi.
 
 To repeat the tests:
