@@ -36,57 +36,6 @@ func (b *Bool) UnmarshalYAML(value *yaml.Node) error {
 	return err
 }
 
-// Selector defines how to extract a piece of data, with an optional removal instruction.
-type Selector struct {
-	Selector string `yaml:"selector"`
-	Remove   string `yaml:"remove,omitempty"`
-	// Text, when set, short-circuits extraction and returns this literal value.
-	// Useful for sources that don't expose a field (e.g. DHT crawlers without
-	// seeder counts) where you still need a non-zero value downstream.
-	Text string `yaml:"text,omitempty"`
-}
-
-// LoginDefinition describes how to authenticate with a tracker
-type LoginDefinition struct {
-	URL          string            `yaml:"url"`
-	Method       string            `yaml:"method"`
-	Body         map[string]string `yaml:"body"`
-	Headers      map[string]string `yaml:"headers,omitempty"` // Added this line
-	SuccessCheck struct {
-		Contains string `yaml:"contains"`
-	} `yaml:"success_check"`
-}
-
-// FieldDefinition defines the selectors for each piece of data.
-type FieldDefinition struct {
-	Title       Selector `yaml:"title"`
-	DownloadURL Selector `yaml:"download_url"`
-	DetailsURL  Selector `yaml:"details_url"`
-	Size        Selector `yaml:"size"`
-	Seeders     Selector `yaml:"seeders"`
-	Leechers    Selector `yaml:"leechers"`
-	PublishDate Selector `yaml:"publish_date"`
-}
-
-// SearchDefinition defines how to query a tracker's API
-type SearchDefinition struct {
-	Type        string              `yaml:"type"`
-	URLs        []string            `yaml:"urls"`
-	Method      string              `yaml:"method"`
-	Body        string              `yaml:"body"`
-	ContentType string              `yaml:"content_type"`
-	Params      map[string]string   `yaml:"params"`
-	Headers     map[string]string   `yaml:"headers,omitempty"`
-	Modes       map[string][]string `yaml:"modes,omitempty"`
-	Results     struct {
-		Path             string          `yaml:"path"`
-		SubPath          string          `yaml:"sub_path"`
-		RowsSelector     string          `yaml:"rows_selector"`
-		DownloadSelector string          `yaml:"download_selector"`
-		Fields           FieldDefinition `yaml:"fields"`
-	} `yaml:"results"`
-}
-
 // UserSetting defines a single configurable field for the UI settings modal.
 type UserSetting struct {
 	Name    string            `yaml:"name" json:"name"`
@@ -107,25 +56,14 @@ type Definition struct {
 	Schedule         string            `yaml:"schedule" json:"-"`
 	RateLimit        time.Duration     `yaml:"rate_limit,omitempty" json:"-"`
 	Settings         []UserSetting     `yaml:"settings" json:"settings,omitempty"` // Defines the settings form
-	UserConfig       map[string]string `yaml:"-" json:"user_config"`
-	Source           string            `yaml:"-" json:"source"` // SourceLocal or SourceUpstream               // Holds the user's saved values
-	Login            LoginDefinition   `yaml:"login" json:"-"`
-	Search           SearchDefinition  `yaml:"search" json:"-"`
-	Categories       map[string]string `yaml:"categories" json:"-"`
+	UserConfig       map[string]string `yaml:"-" json:"user_config"`               // the user's saved values
+	Source           string            `yaml:"-" json:"source"`                    // SourceLocal or SourceUpstream
 	CategoryMappings []CategoryMapping `yaml:"category_mappings" json:"category_mappings"`
-	HealthCheck      HealthCheck       `yaml:"health_check,omitempty" json:"-"`
+	// Modes lists the supported Torznab search modes and their parameters.
+	Modes map[string][]string `yaml:"-" json:"-"`
 
-	// Cardigann is set when the definition was written in the Cardigann
-	// (Jackett/Prowlarr) format; searches then run through that engine.
+	// Cardigann is the parsed definition; searches run through its engine.
 	Cardigann *cardigann.Definition `yaml:"-" json:"-"`
-}
-
-// HealthCheck configures how the tracker is probed by tools/check. All fields
-// are optional; sensible defaults are used by the tool.
-type HealthCheck struct {
-	Query        string `yaml:"query,omitempty"`         // search keyword; defaults to "1080p"
-	RequiresAuth bool   `yaml:"requires_auth,omitempty"` // true → skip search, just probe host
-	Skip         bool   `yaml:"skip,omitempty"`          // true → don't test at all
 }
 
 // CategoryMapping maps an indexer's specific category ID to a standard Torznab category.

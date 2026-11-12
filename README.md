@@ -123,66 +123,14 @@ Use an indexer key instead of `all` for a single tracker. Other endpoints: `/tor
 
 ## Indexer definitions
 
-Each YAML file in `definitions/` describes one site. Full schema: [docs/indexer_definition_structure.md](docs/indexer_definition_structure.md).
+Scarf runs [Cardigann](docs/cardigann.md) definitions, the format Jackett and Prowlarr use.
 
-### Example (two-step HTML scraper)
+- **Catalog:** in the web UI, open **Indexers**, press **Update catalog** and **Add** the indexers you want. Scarf downloads the [Prowlarr/Indexers](https://github.com/Prowlarr/Indexers) definitions on demand; they are not bundled.
+- **Local files:** `definitions/` holds the few sites Prowlarr does not cover. Drop any Cardigann `.yml` there (file name = `id`); it is loaded without a restart and wins over a catalog definition with the same `id`.
 
-```yaml
-key: "bitsearch"
-name: "BitSearch"
-description: "BitSearch is a Public torrent meta-search engine"
-type: "public"
-enabled: true
-language: "en-US"
-schedule: "@every 1h"
-settings:
-- name: use_flaresolverr
-  type: checkbox
-  label: Use FlareSolverr
-  default: 'false'
-search:
-  type: "html"
-  urls:
-    - "https://bitsearch.to/search?q={{.Query}}&sort=seeders&order=desc"
-  results:
-    rows_selector: "div.space-y-4 > div.bg-white > div.items-start"
-    # Second step: the magnet link on the details page.
-    download_selector: "a[href^='magnet:?xt']@href"
-    fields:
-      title:
-        selector: "h3 > a"
-      # Where to go for the second step.
-      details_url:
-        selector: "h3 > a@href"
-      size:
-        selector: "div.flex.flex-wrap > span:nth-child(2)  i.fas.fa-download ~ span"
-      seeders:
-        selector: " div.flex.flex-wrap  span.text-green-600 > span:nth-child(2)"
-      leechers:
-        selector: " div.flex.flex-wrap  span.text-red-600 > span:nth-child(2)"
-      publish_date:
-        selector: "div.space-y-2 > span:nth-child(3)"
-  modes:
-    search: [q]
-    tv-search: [q, season, ep, imdbid]
-    movie-search: [q, imdbid]
-    music-search: [q]
-    book-search: [q]
+Enabled flags and settings live in `indexers.yml` (see [docs/cardigann.md](docs/cardigann.md)), never in the definition files.
 
-category_mappings:
-  - indexer_cat: "Movies"
-    torznab_cat: 2000
-  - indexer_cat: "TV"
-    torznab_cat: 5000
-```
-
-Other top-level fields: `rate_limit`, `login`, `categories`, `health_check`.
-
-### Adding an indexer
-
-1. Create a `.yml` file in the definitions directory.
-2. Follow the structure of an existing definition.
-3. Scarf detects the file and loads it without a restart.
+Scarf's old definition format is no longer supported.
 
 For sites that only show the magnet link on a details page, use `details_url` plus `download_selector` for a two-step search.
 

@@ -204,8 +204,8 @@ func dropSlashEscapes(data []byte) []byte {
 	return out
 }
 
-// IsCardigann reports whether data looks like a Cardigann definition rather
-// than Scarf's own format: Cardigann has top-level "id" and "links", Scarf has "key".
+// IsCardigann reports whether data looks like a Cardigann definition: it has
+// top-level "id" and "links" (Scarf's retired format used "key").
 func IsCardigann(data []byte) bool {
 	var probe struct {
 		ID    string   `yaml:"id"`

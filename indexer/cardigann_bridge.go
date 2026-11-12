@@ -39,10 +39,12 @@ func loadCardigann(data []byte) (*Definition, error) {
 		Description: cd.Description,
 		Language:    cd.Language,
 		RateLimit:   time.Duration(cd.RequestDelay * float64(time.Second)),
-		Cardigann:   cd,
+		// The Cardigann format has no schedule; pre-fetch hourly like Scarf's
+		// old definitions did.
+		Schedule:  "@hourly",
+		Cardigann: cd,
 	}
-	def.Search.Type = "cardigann"
-	def.Search.Modes = cd.Caps.Modes
+	def.Modes = cd.Caps.Modes
 
 	hasFlare := false
 	for _, s := range cd.Settings {
@@ -206,11 +208,6 @@ func (d *cardigannDoer) Do(req *http.Request) (*http.Response, error) {
 		"cmd": "request." + strings.ToLower(req.Method),
 		"url": req.URL.String(),
 	}
-	d.m.mu.RLock()
-	if s := d.m.flaresolverrSessions[d.def.Key]; s != "" {
-		payload["session"] = s
-	}
-	d.m.mu.RUnlock()
 	if req.Body != nil {
 		b, err := io.ReadAll(io.LimitReader(req.Body, 1<<20))
 		if err != nil {
