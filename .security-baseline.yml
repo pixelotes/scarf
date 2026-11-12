@@ -1,0 +1,12 @@
+# Security baseline policy: https://github.com/pixelotes/ci-security-baseline
+version: 1
+
+# stages: optional, defaults to all of them
+# (build, lint, sast, secret-scan, sca, container-scan, iac-scan, quality)
+
+gate:
+  severity: high
+  # Pilot adoption: whatever was introduced before this date only warns.
+  cutoff: '2026-11-12'
+
+exceptions: []
