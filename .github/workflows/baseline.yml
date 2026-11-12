@@ -13,5 +13,4 @@ permissions:
 jobs:
   baseline:
     uses: pixelotes/ci-security-baseline/.github/workflows/ci-go.yml@v1
-    with:
-      go-version: '1.27'
+    # the Go version is read from go.mod
